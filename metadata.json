@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Id": "kde-snap-overlay",
+        "Name": "Snap Layout Popup",
+        "Description": "Shows Plasma's built-in tiling layouts in a popup when a window is dragged to the top edge. Uses KWin's native tiling.",
+        "Icon": "preferences-system-windows",
+        "License": "MIT",
+        "Authors": [
+            {
+                "Name": "IamAndelib",
+                "Email": "andelibtarefsrizon@gmail.com"
+            }
+        ],
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "declarativescript",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

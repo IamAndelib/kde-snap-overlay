@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <kcfgfile name=""/>
+    <group name="General">
+        <entry name="activationDistance" type="Int">
+            <label>The band (in pixels) below the top edge in which the layout popup appears.</label>
+            <default>150</default>
+            <min>100</min>
+            <max>400</max>
+        </entry>
+        <entry name="topGap" type="Int">
+            <label>Distance (in pixels) from the top edge to the popup, keeping the maximize zone clear.</label>
+            <default>60</default>
+            <min>20</min>
+            <max>200</max>
+        </entry>
+    </group>
+</kcfg>
