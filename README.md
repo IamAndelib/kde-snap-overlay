@@ -67,8 +67,6 @@ kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
 
-> The System Settings *Configure* button is not wired up yet; config is edited via `kwriteconfig6` as above.
-
 If `topGap` is raised above the trigger band it is clamped so the popup always lands inside the band.
 
 Setting `edgeGapRatio` to `0.5` collapses the trigger zone to a single point in the center of the top edge, so the popup effectively stops opening — keep it well below `0.5`.
