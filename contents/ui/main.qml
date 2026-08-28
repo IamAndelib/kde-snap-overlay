@@ -66,6 +66,9 @@ PlasmaCore.Dialog {
             return
         }
         window.interactiveMoveResizeStarted.connect(function() {
+            if (!window.move) {
+                return
+            }
             dragging = true
             pollTimer.start()
             onTick()
