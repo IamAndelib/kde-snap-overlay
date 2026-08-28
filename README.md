@@ -1,4 +1,4 @@
-# Snap Layout Popup
+# KDE Snap Overlay
 
 A small [KWin script](https://develop.kde.org/docs/plasma/kwin/) for KDE Plasma 6 (Wayland) that shows Plasma's built-in tiling layouts — like Windows' Snap Layouts — in a popup at the top of the screen while you drag a window.
 
@@ -6,7 +6,7 @@ When you drag a window into the top edge of the screen, a translucent panel with
 
 ## Demo
 
-![Demo of Snap Layout Popup](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo-compact.gif)
+![Demo of KDE Snap Overlay](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo-compact.gif)
 
 All native behaviors are left intact:
 
@@ -50,7 +50,7 @@ On Plasma 5, replace the tools with `kpackagetool5`, `kwriteconfig5` and `qdbus`
 
 ### Option C: System Settings
 
-You can also enable/disable it any time under **System Settings → Window Management → KWin Scripts** (tick *Snap Layout Popup* and press *Apply*). Use *Install New Scripts…* if you have a packaged `.kwinscript` archive.
+You can also enable/disable it any time under **System Settings → Window Management → KWin Scripts** (tick *KDE Snap Overlay* and press *Apply*). Use *Install New Scripts…* if you have a packaged `.kwinscript` archive.
 
 ## Configuration
 

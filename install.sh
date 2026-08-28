@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Snap Layout Popup - KWin script installer
+# KDE Snap Overlay - KWin script installer
 #
 # Installs (or removes) the kde-snap-overlay KWin script and enables it.
 #
@@ -37,11 +37,16 @@ reconfigure_kwin() {
 }
 
 do_install() {
+    echo ">>> Staging runtime files for installation..."
+    STAGE_DIR="$(mktemp -d)"
+    trap 'rm -rf "$STAGE_DIR"' EXIT
+    cp -r "$SCRIPT_DIR/metadata.json" "$SCRIPT_DIR/contents" "$STAGE_DIR/"
+
     echo ">>> Installing KWin script package..."
     if "$KPACKAGE" --type KWin/Script --list 2>/dev/null | grep -qx "$PKG_ID"; then
-        "$KPACKAGE" --type KWin/Script --upgrade "$SCRIPT_DIR"
+        "$KPACKAGE" --type KWin/Script --upgrade "$STAGE_DIR"
     else
-        "$KPACKAGE" --type KWin/Script --install "$SCRIPT_DIR"
+        "$KPACKAGE" --type KWin/Script --install "$STAGE_DIR"
     fi
 
     echo ">>> Enabling $PKG_ID..."
