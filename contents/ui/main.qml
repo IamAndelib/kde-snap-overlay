@@ -1,11 +1,18 @@
 import QtQuick
 import org.kde.kwin
-import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import "../code/main.js" as Logic
+import "components" as Components
 
-Item {
-    id: root
+PlasmaCore.Dialog {
+    id: popup
+    visible: false
+    type: PlasmaCore.Dialog.OnScreenDisplay
+    location: PlasmaCore.Types.Desktop
+    backgroundHints: PlasmaCore.Types.NoBackground
+    flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
+    hideOnWindowDeactivate: false
+    outputOnly: true
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
@@ -24,6 +31,13 @@ Item {
     property bool dragging: false
     property string highlightedLayout: ""
     property string pendingLayout: ""
+
+    function showAtTop() {
+        x = screenArea.x + Math.floor((screenArea.width - popupW) / 2);
+        y = screenArea.y + topGap;
+        setWidth(popupW);
+        setHeight(popupH);
+    }
 
     Component.onCompleted: {
         var outputs = Workspace.screens;
@@ -61,12 +75,12 @@ Item {
         var pos = Workspace.cursorPos;
         var inBand = pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance;
         if (inBand) {
-            popup.showAtTop();
-            popup.visible = true;
-            highlightedLayout = Logic.hitTest(pos.x, pos.y, popup.x, popup.y, cardW, cardH, gap, pad);
+            showAtTop();
+            visible = true;
+            highlightedLayout = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad);
         } else {
             highlightedLayout = "";
-            popup.visible = false;
+            visible = false;
         }
     }
 
@@ -75,7 +89,7 @@ Item {
         pollTimer.stop();
         var chosen = highlightedLayout;
         highlightedLayout = "";
-        popup.visible = false;
+        visible = false;
         if (chosen !== "") {
             pendingLayout = chosen;
             commitTimer.start();
@@ -91,134 +105,97 @@ Item {
         }
     }
 
-    PlasmaCore.Dialog {
-        id: popup
-        visible: false
-        type: PlasmaCore.Dialog.OnScreenDisplay
-        location: PlasmaCore.Types.Desktop
-        backgroundHints: PlasmaCore.Types.NoBackground
-        flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
-        hideOnWindowDeactivate: false
-        outputOnly: true
-
-        function showAtTop() {
-            x = screenArea.x + Math.floor((screenArea.width - popupW) / 2);
-            y = screenArea.y + topGap;
-            setWidth(popupW);
-            setHeight(popupH);
-        }
+    // KZones puts all UI objects and non-Item children (Timers, Connections)
+    // inside a plain Item, because Dialog's default property only accepts Items.
+    Item {
+        id: mainItem
+        anchors.fill: parent
 
         // Theme colors (follow the system color scheme, live).
-        // colorSet must be set within this dialog so Kirigami.Theme resolves to
-        // the active scheme in the same context the colors are consumed.
-        Item {
-            id: colorHelper
-            Kirigami.Theme.colorSet: Kirigami.Theme.View
-
-            property var theme: {
-                const brightness = Kirigami.ColorUtils.brightnessForColor(Kirigami.Theme.backgroundColor);
-                return brightness === Kirigami.ColorUtils.Light ? "light" : "dark";
-            }
-            function getBorderColor(c) {
-                if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(c, "black", 0.15)
-                if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(c, "white", 0.10)
-            }
-            function withAlpha(c, a) {
-                return Qt.rgba(c.r, c.g, c.b, a)
-            }
-            property var backgroundColor: {
-                if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.45)
-                if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.30)
-            }
-            property var borderColor: getBorderColor(backgroundColor)
-            property var fgColor: Kirigami.Theme.textColor
-            property var highColor: Kirigami.Theme.highlightColor
-            property var cardBgIdle: withAlpha(fgColor, 0.08)
-            property var cardBgActive: highColor
-            property var cardBorderIdle: withAlpha(fgColor, 0.18)
-            property var cardBorderActive: withAlpha(highColor, 0.95)
-            property var miniScreenBg: backgroundColor
-            property var miniScreenBorder: withAlpha(fgColor, 0.35)
-            property var miniFillIdle: withAlpha(highColor, 0.5)
-            property var miniFillActive: highColor
-            property var dividerColor: withAlpha(fgColor, 0.3)
-        }
-
+        // Each consumer owns a local ColorHelper (as in KZones) so Kirigami.Theme
+        // resolves in the same context where the colors are consumed.
         Rectangle {
             id: panel
-            anchors.fill: parent
-            radius: 12
-            color: colorHelper.backgroundColor
-            border.width: 1
-            border.color: colorHelper.borderColor
+        anchors.fill: parent
+        radius: 12
+        color: colorHelper.backgroundColor
+        border.width: 1
+        border.color: colorHelper.borderColor
 
-            Row {
-                id: row
-                spacing: gap
-                anchors.centerIn: parent
+        Components.ColorHelper {
+            id: colorHelper
+        }
 
-                Repeater {
-                    id: repeater
-                    model: Logic.LAYOUTS
+        Row {
+            id: row
+            spacing: gap
+            anchors.centerIn: parent
 
-                    delegate: Item {
-                        id: cardItem
-                        width: cardW
-                        height: cardH
+            Repeater {
+                id: repeater
+                model: Logic.LAYOUTS
 
-                        readonly property string layoutId: modelData.id
-                        readonly property bool isActive: root.highlightedLayout === modelData.id
+                delegate: Item {
+                    id: cardItem
+                    width: cardW
+                    height: cardH
+
+                    readonly property string layoutId: modelData.id
+                    readonly property bool isActive: popup.highlightedLayout === modelData.id
+
+                    Components.ColorHelper {
+                        id: colorHelper
+                    }
+
+                    Rectangle {
+                        id: cardBg
+                        anchors.fill: parent
+                        radius: 8
+                        color: isActive ? colorHelper.cardBgActive : colorHelper.cardBgIdle
+                        border.width: isActive ? 2 : 1
+                        border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
+                        Behavior on color { ColorAnimation { duration: 90 } }
+                        Behavior on border.color { ColorAnimation { duration: 90 } }
+                    }
+
+                    Item {
+                        id: mini
+                        anchors.fill: parent
+                        anchors.margins: 9
 
                         Rectangle {
-                            id: cardBg
+                            id: screenBg
                             anchors.fill: parent
-                            radius: 8
-                            color: isActive ? colorHelper.cardBgActive : colorHelper.cardBgIdle
-                            border.width: isActive ? 2 : 1
-                            border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
-                            Behavior on color { ColorAnimation { duration: 90 } }
-                            Behavior on border.color { ColorAnimation { duration: 90 } }
+                            radius: 3
+                            color: colorHelper.miniScreenBg
+                            border.color: colorHelper.miniScreenBorder
+                            border.width: 1
                         }
 
-                        Item {
-                            id: mini
-                            anchors.fill: parent
-                            anchors.margins: 9
+                        Rectangle {
+                            id: fillArea
+                            x: mini.width * modelData.fx
+                            y: mini.height * modelData.fy
+                            width: mini.width * modelData.fw
+                            height: mini.height * modelData.fh
+                            radius: 2
+                            color: isActive ? colorHelper.miniFillActive : colorHelper.miniFillIdle
+                            Behavior on color { ColorAnimation { duration: 90 } }
+                        }
 
-                            Rectangle {
-                                id: screenBg
-                                anchors.fill: parent
-                                radius: 3
-                                color: colorHelper.miniScreenBg
-                                border.color: colorHelper.miniScreenBorder
-                                border.width: 1
-                            }
-
-                            Rectangle {
-                                id: fillArea
-                                x: mini.width * modelData.fx
-                                y: mini.height * modelData.fy
-                                width: mini.width * modelData.fw
-                                height: mini.height * modelData.fh
-                                radius: 2
-                                color: isActive ? colorHelper.miniFillActive : colorHelper.miniFillIdle
-                                Behavior on color { ColorAnimation { duration: 90 } }
-                            }
-
-                            Rectangle {
-                                width: 1
-                                height: mini.height
-                                anchors.horizontalCenter: mini.horizontalCenter
-                                visible: modelData.fw === 0.5
-                                color: colorHelper.dividerColor
-                            }
-                            Rectangle {
-                                width: mini.width
-                                height: 1
-                                anchors.verticalCenter: mini.verticalCenter
-                                visible: modelData.fh === 0.5
-                                color: colorHelper.dividerColor
-                            }
+                        Rectangle {
+                            width: 1
+                            height: mini.height
+                            anchors.horizontalCenter: mini.horizontalCenter
+                            visible: modelData.fw === 0.5
+                            color: colorHelper.dividerColor
+                        }
+                        Rectangle {
+                            width: mini.width
+                            height: 1
+                            anchors.verticalCenter: mini.verticalCenter
+                            visible: modelData.fh === 0.5
+                            color: colorHelper.dividerColor
                         }
                     }
                 }
@@ -237,5 +214,6 @@ Item {
         id: commitTimer
         interval: 80
         onTriggered: onCommit()
+    }
     }
 }
