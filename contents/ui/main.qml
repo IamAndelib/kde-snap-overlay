@@ -196,18 +196,18 @@ PlasmaCore.Dialog {
                 }
             }
         }
-    }
 
-    Timer {
-        id: pollTimer
-        interval: 16
-        repeat: true
-        onTriggered: onTick()
-    }
+        Timer {
+            id: pollTimer
+            interval: 16
+            repeat: true
+            onTriggered: onTick()
+        }
 
-    Timer {
-        id: commitTimer
-        interval: 80
-        onTriggered: onCommit()
+        Timer {
+            id: commitTimer
+            interval: 80
+            onTriggered: onCommit()
+        }
     }
 }
