@@ -6,7 +6,14 @@ When you drag a window into the top edge of the screen, a translucent panel with
 
 ## Demo
 
-<video src="screenshots/demo.mp4" controls muted></video>
+![Demo](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo.mp4)
+
+<details>
+<summary>Or download the demo video</summary>
+
+[`screenshots/demo.mp4`](screenshots/demo.mp4)
+
+</details>
 
 All native behaviors are left intact:
 
