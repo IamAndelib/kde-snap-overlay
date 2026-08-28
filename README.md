@@ -6,7 +6,7 @@ When you drag a window into the top edge of the screen, a translucent panel with
 
 ## Demo
 
-![Demo](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo.mp4)
+<video src="https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo.mp4" controls muted playsinline></video>
 
 <details>
 <summary>Or download the demo video</summary>
