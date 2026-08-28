@@ -25,12 +25,10 @@ Item {
     property var fgColor: Kirigami.Theme.textColor
     property var highColor: Kirigami.Theme.highlightColor
     property var cardBgIdle: withAlpha(fgColor, 0.08)
-    property var cardBgActive: highColor
     property var cardBorderIdle: withAlpha(fgColor, 0.18)
     property var cardBorderActive: withAlpha(highColor, 0.95)
     property var miniScreenBg: backgroundColor
     property var miniScreenBorder: withAlpha(fgColor, 0.35)
     property var miniFillIdle: withAlpha(highColor, 0.5)
-    property var miniFillActive: highColor
     property var dividerColor: withAlpha(fgColor, 0.3)
 }

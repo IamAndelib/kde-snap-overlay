@@ -147,10 +147,9 @@ PlasmaCore.Dialog {
                         Rectangle {
                             anchors.fill: parent
                             radius: 8
-                            color: isActive ? colorHelper.cardBgActive : colorHelper.cardBgIdle
+                            color: colorHelper.cardBgIdle
                             border.width: isActive ? 2 : 1
                             border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
-                            Behavior on color { ColorAnimation { duration: 90 } }
                             Behavior on border.color { ColorAnimation { duration: 90 } }
                         }
 
@@ -173,8 +172,7 @@ PlasmaCore.Dialog {
                                 width: mini.width * modelData.fw
                                 height: mini.height * modelData.fh
                                 radius: 2
-                                color: isActive ? colorHelper.miniFillActive : colorHelper.miniFillIdle
-                                Behavior on color { ColorAnimation { duration: 90 } }
+                                color: colorHelper.miniFillIdle
                             }
 
                             Rectangle {
