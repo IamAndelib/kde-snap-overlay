@@ -11,8 +11,10 @@ Item {
     function getBorderColor(c) {
         if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(c, "black", 0.15)
         if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(c, "white", 0.10)
+        return c
     }
     function withAlpha(c, a) {
+        if (!c) return c
         return Qt.rgba(c.r, c.g, c.b, a)
     }
     property var backgroundColor: {

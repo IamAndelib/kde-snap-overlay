@@ -87,6 +87,10 @@ qdbus6 org.kde.KWin /KWin reconfigure
 - On release, the highlighted layout's `slotWindowQuickTile*` is called. A short delay lets KWin commit the drop first.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
+## Color scheme
+
+The popup follows the active Plasma color scheme, and updates **live** — no relog needed. Colors come from `Kirigami.Theme` (per `contents/ui/components/ColorHelper.qml`), which is wired the same way as KZones: a `ColorHelper` instance owned by each consumer, with the script root being the `PlasmaCore.Dialog` itself. There are no hardcoded colors in the UI.
+
 ## Troubleshooting
 
 - **Popup doesn't appear**: confirm it's enabled — `kreadconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled` should print `true` — then reconfigure. Check KWin's log: `journalctl --user -b | grep kwin_wayland`.

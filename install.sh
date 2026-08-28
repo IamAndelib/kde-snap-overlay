@@ -9,12 +9,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_ID="kde-snap-overlay"
 
-PLASMA6=0
 if command -v kpackagetool6 >/dev/null 2>&1; then
     KPACKAGE="kpackagetool6"
     KWRITE="kwriteconfig6"
     QDBUS="$(command -v qdbus6 || command -v qdbus || true)"
-    PLASMA6=1
 elif command -v kpackagetool5 >/dev/null 2>&1; then
     KPACKAGE="kpackagetool5"
     KWRITE="kwriteconfig5"
