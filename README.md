@@ -109,7 +109,6 @@ The popup follows the active Plasma color scheme, and updates **live** — no re
 
 - Mouse drags only (no keyboard shortcuts).
 - Single monitor only for now.
-- Dragging with the window maximized or snapped uses KWin's normal behavior.
 
 ## License
 
