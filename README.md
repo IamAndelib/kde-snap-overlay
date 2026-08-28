@@ -6,14 +6,7 @@ When you drag a window into the top edge of the screen, a translucent panel with
 
 ## Demo
 
-<video src="https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo.mp4" controls muted playsinline></video>
-
-<details>
-<summary>Or download the demo video</summary>
-
-[`screenshots/demo.mp4`](screenshots/demo.mp4)
-
-</details>
+![Demo of Snap Layout Popup](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo-compact.gif)
 
 All native behaviors are left intact:
 
