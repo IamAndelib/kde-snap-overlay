@@ -22,7 +22,15 @@ All native behaviors are left intact:
 
 ## Install
 
-### Option A: one-command installer
+### Option A: from the `.kwinscript` file
+
+Grab `kde-snap-overlay-1.1.4.kwinscript` from the repo root or the [v1.1.4 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.1.4) (also published on the [KDE Store](https://store.kde.org)):
+
+1. Open **System Settings → Window Management → KWin Scripts**.
+2. Press **Install from File…** and select the `.kwinscript` file.
+3. Tick *KDE Snap Overlay* and press **Apply**.
+
+### Option B: one-command installer
 
 ```sh
 git clone https://github.com/IamAndelib/kde-snap-overlay.git
@@ -30,7 +38,7 @@ cd kde-snap-overlay
 ./install.sh
 ```
 
-### Option B: manual
+### Option C: manual
 
 ```sh
 git clone https://github.com/IamAndelib/kde-snap-overlay.git
@@ -48,9 +56,9 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 On Plasma 5, replace the tools with `kpackagetool5`, `kwriteconfig5` and `qdbus`.
 
-### Option C: System Settings
+### Option D: get new scripts
 
-You can also enable/disable it any time under **System Settings → Window Management → KWin Scripts** (tick *KDE Snap Overlay* and press *Apply*). Use *Install New Scripts…* if you have a packaged `.kwinscript` archive.
+You can also install it from the **KDE Store** via **System Settings → Window Management → KWin Scripts → Get New Scripts…**, and enable/disable it any time by ticking *KDE Snap Overlay* and pressing *Apply*.
 
 ## Configuration
 
