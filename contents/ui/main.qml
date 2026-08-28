@@ -1,5 +1,6 @@
 import QtQuick
 import org.kde.kwin
+import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import "../code/main.js" as Logic
 
@@ -107,13 +108,49 @@ Item {
             setHeight(popupH);
         }
 
+        // Theme colors (follow the system color scheme, live).
+        // colorSet must be set within this dialog so Kirigami.Theme resolves to
+        // the active scheme in the same context the colors are consumed.
+        Item {
+            id: colorHelper
+            Kirigami.Theme.colorSet: Kirigami.Theme.View
+
+            property var theme: {
+                const brightness = Kirigami.ColorUtils.brightnessForColor(Kirigami.Theme.backgroundColor);
+                return brightness === Kirigami.ColorUtils.Light ? "light" : "dark";
+            }
+            function getBorderColor(c) {
+                if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(c, "black", 0.15)
+                if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(c, "white", 0.10)
+            }
+            function withAlpha(c, a) {
+                return Qt.rgba(c.r, c.g, c.b, a)
+            }
+            property var backgroundColor: {
+                if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.45)
+                if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.30)
+            }
+            property var borderColor: getBorderColor(backgroundColor)
+            property var fgColor: Kirigami.Theme.textColor
+            property var highColor: Kirigami.Theme.highlightColor
+            property var cardBgIdle: withAlpha(fgColor, 0.08)
+            property var cardBgActive: highColor
+            property var cardBorderIdle: withAlpha(fgColor, 0.18)
+            property var cardBorderActive: withAlpha(highColor, 0.95)
+            property var miniScreenBg: backgroundColor
+            property var miniScreenBorder: withAlpha(fgColor, 0.35)
+            property var miniFillIdle: withAlpha(highColor, 0.5)
+            property var miniFillActive: highColor
+            property var dividerColor: withAlpha(fgColor, 0.3)
+        }
+
         Rectangle {
             id: panel
             anchors.fill: parent
             radius: 12
-            color: Qt.rgba(0.10, 0.11, 0.13, 0.95)
+            color: colorHelper.backgroundColor
             border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.3)
+            border.color: colorHelper.borderColor
 
             Row {
                 id: row
@@ -136,9 +173,9 @@ Item {
                             id: cardBg
                             anchors.fill: parent
                             radius: 8
-                            color: isActive ? Qt.rgba(0.4, 0.63, 1.0, 0.35) : Qt.rgba(1, 1, 1, 0.06)
+                            color: isActive ? colorHelper.cardBgActive : colorHelper.cardBgIdle
                             border.width: isActive ? 2 : 1
-                            border.color: isActive ? Qt.rgba(1, 1, 1, 0.95) : Qt.rgba(1, 1, 1, 0.2)
+                            border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
                             Behavior on color { ColorAnimation { duration: 90 } }
                             Behavior on border.color { ColorAnimation { duration: 90 } }
                         }
@@ -152,8 +189,8 @@ Item {
                                 id: screenBg
                                 anchors.fill: parent
                                 radius: 3
-                                color: "#1e2430"
-                                border.color: Qt.rgba(1, 1, 1, 0.35)
+                                color: colorHelper.miniScreenBg
+                                border.color: colorHelper.miniScreenBorder
                                 border.width: 1
                             }
 
@@ -164,7 +201,7 @@ Item {
                                 width: mini.width * modelData.fw
                                 height: mini.height * modelData.fh
                                 radius: 2
-                                color: isActive ? "#5c9dff" : "#3d6bb0"
+                                color: isActive ? colorHelper.miniFillActive : colorHelper.miniFillIdle
                                 Behavior on color { ColorAnimation { duration: 90 } }
                             }
 
@@ -173,14 +210,14 @@ Item {
                                 height: mini.height
                                 anchors.horizontalCenter: mini.horizontalCenter
                                 visible: modelData.fw === 0.5
-                                color: Qt.rgba(1, 1, 1, 0.3)
+                                color: colorHelper.dividerColor
                             }
                             Rectangle {
                                 width: mini.width
                                 height: 1
                                 anchors.verticalCenter: mini.verticalCenter
                                 visible: modelData.fh === 0.5
-                                color: Qt.rgba(1, 1, 1, 0.3)
+                                color: colorHelper.dividerColor
                             }
                         }
                     }
