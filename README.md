@@ -4,6 +4,10 @@ A small [KWin script](https://develop.kde.org/docs/plasma/kwin/) for KDE Plasma 
 
 When you drag a window into the top edge of the screen, a translucent panel with the 8 native layouts (left, right, top, bottom, and the four corners) appears near the top-center. Drop on a layout and KWin's **native quick-tiling** is applied via `Workspace.slotWindowQuickTile*()`, so window sticking and adjacent-resize-on-edge behavior work exactly as with KWin's own edge tiling.
 
+## Demo
+
+<video src="screenshots/demo.mp4" controls muted></video>
+
 All native behaviors are left intact:
 
 - Dragging to the very top edge (≤ 5px) still **maximizes** the window.
