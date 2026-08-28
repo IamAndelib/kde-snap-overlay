@@ -54,16 +54,20 @@ You can also enable/disable it any time under **System Settings → Window Manag
 | -------------------- | ------- | ----- | ---------------------------------------------------- |
 | `activationDistance` | 150     | 100–400 | Band below the top edge (px) in which the popup appears |
 | `topGap`             | 60      | 20–200 | Gap between the top edge and the popup, keeping the native maximize zone clear |
+| `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 
 ```sh
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationDistance 150
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 60
+kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0.25
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
 
 > The System Settings *Configure* button is not wired up yet; config is edited via `kwriteconfig6` as above.
 
 If `topGap` is raised above the trigger band it is clamped so the popup always lands inside the band.
+
+Setting `edgeGapRatio` to `0.5` collapses the trigger zone to a single point in the center of the top edge, so the popup effectively stops opening — keep it well below `0.5`.
 
 ## Uninstall
 

@@ -19,6 +19,11 @@ PlasmaCore.Dialog {
     // topGap is clamped so it always lands inside the trigger band; the floor is
     // activationDistance - 20 because the popup must fit below the maximize zone.
     readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - 20, 20))
+    // Fraction of the screen width to ignore on each side of the trigger band,
+    // so dragging to the corners (quarter-tile intent) doesn't open the popup.
+    readonly property real edgeGapRatio: Math.min(Math.max(KWin.readConfig("edgeGapRatio", 0.25), 0), 0.5)
+    // Horizontal trigger margin on each side, derived from the current screen width.
+    readonly property real edgeGap: screenArea.width * edgeGapRatio
 
     // ---- Card / popup metrics ----
     readonly property int cardW: 84
@@ -75,7 +80,9 @@ PlasmaCore.Dialog {
             return
         }
         var pos = Workspace.cursorPos
-        var inBand = pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance
+        var inBand =
+            pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
+            pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
             showAtTop()
             visible = true
