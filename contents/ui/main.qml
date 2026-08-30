@@ -486,12 +486,13 @@ PlasmaCore.Dialog {
                         width: frac.fw * parent.width
                         height: frac.fh * parent.height
 
-                        // Delineation for every cell of the current layout.
+                        // Fill on the active cell only; idle cells stay
+                        // invisible so no ghost of the other zones shows.
                         Rectangle {
                             anchors.fill: parent
                             radius: 8
                             color: overlayHelper.accentColor
-                            opacity: active ? 0.12 : 0.04
+                            opacity: active ? 0.12 : 0
                             Behavior on opacity {
                                 NumberAnimation { duration: 90 }
                             }
@@ -502,8 +503,8 @@ PlasmaCore.Dialog {
                             anchors.fill: parent
                             radius: 8
                             color: "transparent"
-                            border.width: active ? 3 : 1
-                            border.color: active ? overlayHelper.accentColor : Qt.rgba(overlayHelper.accentColor.r, overlayHelper.accentColor.g, overlayHelper.accentColor.b, 0.25)
+                            border.width: active ? 3 : 0
+                            border.color: active ? overlayHelper.accentColor : "transparent"
                             Behavior on border.color {
                                 ColorAnimation { duration: 90 }
                             }
