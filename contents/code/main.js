@@ -76,16 +76,6 @@ function layoutOf(zoneId) {
     return "";
 }
 
-// Zones of a layout as plain zone descriptors (no functions), for Repeater models.
-function zonesForLayout(layoutId) {
-    for (var i = 0; i < LAYOUTS.length; i++) {
-        if (LAYOUTS[i].id === layoutId) {
-            return LAYOUTS[i].zones;
-        }
-    }
-    return [];
-}
-
 // Index of a zone within its layout, or -1 if it is not in that layout.
 function zoneIndexInLayout(layoutId, zoneId) {
     for (var i = 0; i < LAYOUTS.length; i++) {
@@ -141,4 +131,16 @@ function hitTestZones(posX, posY, popupX, popupY, cardW, cardH, gap, pad, hs, vs
         }
     }
     return "";
+}
+// KWin QuickTileMode flag values (QuickTileFlag): Left=1, Right=2, Top=4,
+// Bottom=8, Maximize=16; corner modes are combinations. Stable across
+// KWin 5/6 — used with Window.quickTileGeometry() for exact native geometry.
+var ZONE_MODE = {
+    left: 1, right: 2, top: 4, bottom: 8,
+    topLeft: 5, topRight: 6, bottomLeft: 9, bottomRight: 10
+};
+
+// KWin QuickTileMode for a zone id, or 0 if unknown.
+function zoneMode(zoneId) {
+    return ZONE_MODE[zoneId] || 0;
 }
