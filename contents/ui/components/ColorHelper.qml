@@ -29,4 +29,6 @@ Item {
     property var miniScreenBorder: withAlpha(fgColor, 0.35)
     property var miniFillIdle: withAlpha(highColor, 0.5)
     property var dividerColor: withAlpha(fgColor, 0.3)
+    property var overlayFill: withAlpha(highColor, 0.32)
+    property var overlayBorder: withAlpha(highColor, 0.85)
 }
