@@ -67,8 +67,8 @@ PlasmaCore.Dialog {
     // Cursor within showDistance of the screen top: the selector is fully
     // expanded; hovering the selector also keeps it expanded (KZones).
     property bool fullZone: false
-    // Fly-out / fully-retracted state: the selector sits at the retracted
-    // margin (flying up off the top edge), inside the still-visible dialog.
+    // Fly-out / fully-retracted state: the panel sits fully above the screen
+    // edge (retracted position), inside the still-visible dialog.
     property bool retracted: true
     // Whether the native outline currently on screen is OURS (shown via
     // showOutline for a hovered card). Only ever hide an outline we own —
