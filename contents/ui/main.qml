@@ -67,6 +67,17 @@ PlasmaCore.Dialog {
     // unconditional hides would erase KWin's own native edge/corner
     // drag previews.
     property bool outlineShown: false
+    // The grab point of the current drag (fixed for the whole drag, like
+    // KWin's interactiveMoveResizeAnchor). quickTileGeometry() is anchored
+    // to it so the outline rect cannot jitter as the cursor moves.
+    property point dragAnchor: Qt.point(0, 0)
+    // What we last fed to showOutline — the outline is re-asserted only when
+    // the zone or its rect actually changes (per-tick re-assertion pulses).
+    property string shownZone: ""
+    property rect shownRect: Qt.rect(0, 0, 0, 0)
+    // Last valid rect quickTileGeometry produced; kept as hysteresis when a
+    // tick returns a degenerate rect mid-hover.
+    property rect lastNativeRect: Qt.rect(0, 0, 0, 0)
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
     // The layout the overlay currently previews (owns the hovered zone).
@@ -91,15 +102,22 @@ PlasmaCore.Dialog {
     // changes, since cursorPos is not a notifiable dependency. Resolution
     // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
     // native snapping feeds its outline (probed, not exposed on every
-    // build); (2) the live grid splits measured from the real tile tree.
+    // build), anchored to the fixed grab point; (2) the live grid splits
+    // measured from the real tile tree.
     function currentZoneRect() {
         if (dragWindow && highlightedZone !== "") {
             try {
                 if (dragWindow.quickTileGeometry) {
                     var native = dragWindow.quickTileGeometry(
-                        Logic.zoneMode(highlightedZone), Workspace.cursorPos)
+                        Logic.zoneMode(highlightedZone), dragAnchor)
                     if (native && native.width > 0 && native.height > 0) {
-                        return Qt.rect(native.x, native.y, native.width, native.height)
+                        lastNativeRect = Qt.rect(native.x, native.y, native.width, native.height)
+                        return lastNativeRect
+                    }
+                    // Degenerate this tick: keep the last valid native rect
+                    // instead of flapping to the fallback mid-hover.
+                    if (lastNativeRect.width > 0) {
+                        return lastNativeRect
                     }
                 }
             } catch (e) {
@@ -344,6 +362,9 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
+            // Fixed grab anchor for quickTileGeometry (KWin uses the same
+            // interactiveMoveResizeAnchor semantics for native previews).
+            dragAnchor = Workspace.cursorPos
             // KZones' activation: the dialog maps at grab time — long before
             // the cursor ever reaches the band — and the selector starts
             // fully retracted inside it.
@@ -405,9 +426,10 @@ PlasmaCore.Dialog {
             var hovering = pointInRect(pos, selectorRect())
             fullZone = hovering || (pos.y - screenArea.y) < showDistance
             // Selection is popup-area-only: only the cards highlight; the
-            // panel padding and the rest of the screen stay inert. Hover
-            // checks pause while the margin animation runs (KZones parity).
-            var hit = ""
+            // panel padding and the rest of the screen stay inert. While the
+            // margin animation runs the previous highlight is KEPT (not
+            // cleared) — clearing here would blink the outline on and off.
+            var hit = highlightedZone
             if (fullZone && !zoneSelector.animating) {
                 var g = zoneSelector.panel.mapToGlobal(Qt.point(0, 0))
                 hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
@@ -428,14 +450,23 @@ PlasmaCore.Dialog {
         // KWin's native snap outline (the same renderer native edge-dragging
         // uses) tracks the highlight and moves with live grid changes. We
         // only ever hide an outline we showed ourselves — unconditional
-        // hides would erase KWin's own native edge/corner drag previews.
+        // hides would erase KWin's own native edge/corner drag previews —
+        // and we re-assert it only when the zone or its rect actually
+        // changed (per-tick re-assertion pulses the outline).
         var outlineRect = currentZoneRect()
         if (highlightedZone !== "" && outlineRect.width > 0) {
-            Workspace.showOutline(outlineRect)
-            outlineShown = true
+            if (!outlineShown || highlightedZone !== shownZone ||
+                outlineRect.x !== shownRect.x || outlineRect.y !== shownRect.y ||
+                outlineRect.width !== shownRect.width || outlineRect.height !== shownRect.height) {
+                Workspace.showOutline(outlineRect)
+                shownZone = highlightedZone
+                shownRect = outlineRect
+                outlineShown = true
+            }
         } else if (outlineShown) {
             Workspace.hideOutline()
             outlineShown = false
+            shownZone = ""
         }
     }
 
@@ -452,6 +483,7 @@ PlasmaCore.Dialog {
         if (outlineShown) {
             Workspace.hideOutline()
             outlineShown = false
+            shownZone = ""
         }
         if (flyOut) {
             retracted = true
