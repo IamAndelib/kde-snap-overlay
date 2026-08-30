@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.1.4.kwinscript` from the repo root or the [v1.1.4 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.1.4) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.1.5.kwinscript` from the repo root or the [v1.1.5 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.1.5) (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -65,7 +65,7 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | Key                  | Default | Range | Meaning                                              |
 | -------------------- | ------- | ----- | ---------------------------------------------------- |
 | `activationDistance` | 150     | 100–400 | Band below the top edge (px) in which the popup appears |
-| `topGap`             | 60      | 20–200 | Gap between the top edge and the popup, keeping the native maximize zone clear |
+| `topGap`             | 60      | 20–(activationDistance−68) | Gap between the top edge and the popup, keeping the native maximize zone clear |
 | `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 
 ```sh
@@ -75,7 +75,7 @@ kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
 
-If `topGap` is raised above the trigger band it is clamped so the popup always lands inside the band.
+If `topGap` is raised too high it is clamped so the popup's card row always lands inside the trigger band.
 
 Setting `edgeGapRatio` to `0.5` collapses the trigger zone to a single point in the center of the top edge, so the popup effectively stops opening — keep it well below `0.5`.
 
@@ -114,7 +114,7 @@ The popup follows the active Plasma color scheme, and updates **live** — no re
 ## Limitations
 
 - Mouse drags only (no keyboard shortcuts).
-- Single monitor only for now.
+- Single monitor only for now (the trigger area/popup follow the screen under the cursor at drag start).
 
 ## License
 
