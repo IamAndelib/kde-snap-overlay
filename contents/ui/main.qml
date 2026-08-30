@@ -275,7 +275,11 @@ PlasmaCore.Dialog {
             connectWindow(order[i])
         }
         Workspace.windowAdded.connect(connectWindow)
-        Workspace.windowClosed.connect(onWindowClosed)
+        // Not exposed by every KWin build; guard so an unguarded connect
+        // would abort Component.onCompleted and break the whole instance.
+        if (Workspace.windowClosed) {
+            Workspace.windowClosed.connect(onWindowClosed)
+        }
     }
 
     // Screen under the given position, falling back to the first screen.
