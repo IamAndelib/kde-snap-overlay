@@ -101,7 +101,9 @@ PlasmaCore.Dialog {
 
         // A leaf rect contributes split values only if it is clearly
         // anchored to the screen edges. Frame geometry is used so the
-        // measured edges sit exactly on the tile partition lines.
+        // measured edges sit exactly on the tile partition lines. With
+        // margins/gaps in a custom tiling the frame stays inset from the
+        // edges, so such setups fall through to the default grid.
         function consider(rect) {
             if (!rect || rect.width < 50 || rect.height < 50) {
                 return
@@ -221,13 +223,16 @@ PlasmaCore.Dialog {
                         continue
                     }
                 }
-                if (dragScreen && w.output && w.output !== dragScreen) {
+                if (dragScreen && (!w.output || w.output !== dragScreen)) {
                     continue
                 }
                 root = w.tile
                 break
             }
             if (root) {
+                // Assumes a single tile tree per desktop (the quick grid).
+                // Custom tilings with several independent roots would only
+                // contribute the tree the first tiled window belongs to.
                 var p = root.parentTile
                 while (p) {
                     root = p
@@ -332,8 +337,12 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            showAtTop()
-            visible = true
+            // Position once on entry; the popup is anchored to the screen, so
+            // it does not need repositioning while the cursor stays in band.
+            if (!visible) {
+                showAtTop()
+                visible = true
+            }
             // Only update the layout when the hit test result actually
             // changes; keeps the overlay binding quiet while hovering.
             var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
@@ -346,13 +355,17 @@ PlasmaCore.Dialog {
         }
     }
 
-    function onDrop() {
+    function resetDrag() {
         dragging = false
         pollTimer.stop()
         dragWindow = null
-        var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
+    }
+
+    function onDrop() {
+        var chosen = highlightedLayout
+        resetDrag()
         if (chosen !== "") {
             pendingLayout = chosen
             // Delay so KWin has committed the drop before we snap the window.
@@ -365,11 +378,7 @@ PlasmaCore.Dialog {
     // get stuck.
     function onWindowClosed(window) {
         if (dragging && window === dragWindow) {
-            dragging = false
-            pollTimer.stop()
-            dragWindow = null
-            highlightedLayout = ""
-            visible = false
+            resetDrag()
         }
     }
 
@@ -421,15 +430,15 @@ PlasmaCore.Dialog {
                         readonly property bool isActive: popup.highlightedLayout === modelData.id
 
                         Components.ColorHelper {
-                            id: colorHelper
+                            id: cardHelper
                         }
 
                         Rectangle {
                             anchors.fill: parent
                             radius: 8
-                            color: colorHelper.cardBgIdle
+                            color: cardHelper.cardBgIdle
                             border.width: isActive ? 2 : 1
-                            border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
+                            border.color: isActive ? cardHelper.cardBorderActive : cardHelper.cardBorderIdle
                             Behavior on border.color { ColorAnimation { duration: 90 } }
                         }
 
@@ -441,8 +450,8 @@ PlasmaCore.Dialog {
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 3
-                                color: colorHelper.miniScreenBg
-                                border.color: colorHelper.miniScreenBorder
+                                color: cardHelper.miniScreenBg
+                                border.color: cardHelper.miniScreenBorder
                                 border.width: 1
                             }
 
@@ -452,7 +461,7 @@ PlasmaCore.Dialog {
                                 width: mini.width * modelData.fw
                                 height: mini.height * modelData.fh
                                 radius: 2
-                                color: colorHelper.miniFillIdle
+                                color: cardHelper.miniFillIdle
                             }
 
                             Rectangle {
@@ -460,14 +469,14 @@ PlasmaCore.Dialog {
                                 height: mini.height
                                 anchors.horizontalCenter: mini.horizontalCenter
                                 visible: modelData.fw === 0.5
-                                color: colorHelper.dividerColor
+                                color: cardHelper.dividerColor
                             }
                             Rectangle {
                                 width: mini.width
                                 height: 1
                                 anchors.verticalCenter: mini.verticalCenter
                                 visible: modelData.fh === 0.5
-                                color: colorHelper.dividerColor
+                                color: cardHelper.dividerColor
                             }
                         }
                     }
