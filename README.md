@@ -108,7 +108,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 ## Color scheme
 
-The popup is natively Plasma-integrated: the panel is a Plasma dialog (theme translucency + blur), the layout cards use the Plasma theme's widget background frames, and the active-zone highlight uses the system accent color via `Kirigami.Theme` (per `contents/ui/components/ColorHelper.qml`). There are no hardcoded colors in the UI.
+The popup's panel is the Plasma dialog's default theme background (theme translucency + KWin blur-behind), and the layout cards are painted with Kirigami theme tokens per `contents/ui/components/ColorHelper.qml` — everything follows the active Plasma color scheme live, with no hardcoded colors. (KWin's trimmed `org.kde.plasma.core` module does not export `FrameSvgItem` to scripts, so the cards are Qt Quick painted with the system palette.)
 
 ## Troubleshooting
 

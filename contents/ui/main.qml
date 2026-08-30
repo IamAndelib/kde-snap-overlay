@@ -9,9 +9,10 @@ PlasmaCore.Dialog {
     visible: false
     type: PlasmaCore.Dialog.OnScreenDisplay
     location: PlasmaCore.Types.Desktop
-    // Native Plasma dialog background: theme translucency, KWin blur-behind,
-    // theme border and drop shadow — the system shell look.
-    backgroundHints: PlasmaCore.Types.NormalBackground
+    // Default background hints: the Plasma theme's dialog background with
+    // theme translucency and KWin blur-behind — the system shell look. (Do
+    // not assign PlasmaCore.Types.NormalBackground explicitly: KWin's
+    // trimmed org.kde.plasma.core module does not define that enum value.)
     flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint
     hideOnWindowDeactivate: false
     outputOnly: true
