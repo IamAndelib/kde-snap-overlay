@@ -85,12 +85,12 @@ PlasmaCore.Dialog {
     // Read the current quick-tile grid (hSplit/vSplit) straight from KWin's
     // tile tree, reproducing what QuickRootTile::relayoutToFit() computes:
     // the split follows the inner edge of the tiled windows. The quick slot
-    // grid itself is not scripting-accessible, so the tree is reached through
-    // a tiled window instead - any window KWin placed in a tile reports its
-    // owning tile via window.tile. Ascending to the tree root and reading the
-    // leaves gives exactly the partition KWin previews; unlike sampling the
-    // whole stacking order, no floating window can ever skew the grid. Falls
-    // back to the default grid.
+    // grid itself is not scripting-accessible, so the tree is reached by
+    // scanning the stacking order for a window that reports an owning tile
+    // (window.tile); ascending to the tree root and reading its leaves gives
+    // exactly the partition KWin previews. Only windows KWin placed in a tile
+    // can contribute, so floating windows never skew the grid. Falls back to
+    // the default grid.
     function splitsFromTileTree() {
         hSplit = 0.5
         vSplit = 0.5
@@ -270,9 +270,7 @@ PlasmaCore.Dialog {
             connectWindow(order[i])
         }
         Workspace.windowAdded.connect(connectWindow)
-        if (Workspace.windowClosed) {
-            Workspace.windowClosed.connect(onWindowClosed)
-        }
+        Workspace.windowClosed.connect(onWindowClosed)
     }
 
     // Screen under the given position, falling back to the first screen.
