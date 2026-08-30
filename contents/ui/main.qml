@@ -81,10 +81,24 @@ PlasmaCore.Dialog {
     property real hSplit: 0.5
     property real vSplit: 0.5
 
-    // The screen-space region the highlighted zone maps to. Uses the
-    // dynamic grid splits instead of the static layout fractions, matching
-    // the geometry KWin's quickTileGeometry()/tileForMode() would report.
+    // The screen-space region the highlighted zone maps to. Resolution
+    // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
+    // native snapping feeds its outline (probed, not exposed on every
+    // build); (2) the live grid splits measured from the real tile tree.
     readonly property rect highlightGeometry: {
+        if (dragWindow && highlightedZone !== "") {
+            try {
+                if (dragWindow.quickTileGeometry) {
+                    var native = dragWindow.quickTileGeometry(
+                        Logic.zoneMode(highlightedZone), Workspace.cursorPos)
+                    if (native && native.width > 0 && native.height > 0) {
+                        return Qt.rect(native.x, native.y, native.width, native.height)
+                    }
+                }
+            } catch (e) {
+                // Not scriptable here: fall through to the tile-tree splits.
+            }
+        }
         var f = Logic.zoneRectFrac(highlightedZone, hSplit, vSplit)
         if (!f || (f.fw === 0 && f.fh === 0)) {
             return Qt.rect(0, 0, 0, 0)
@@ -178,84 +192,28 @@ PlasmaCore.Dialog {
             }
         }
 
-        // Union of the client rects of every window a tile manages. For a
-        // quick leaf that is one window; for a custom tile holding several
-        // stacked windows, the union is the cell they jointly fill.
-        function addLeaf(tile) {
-            if (!tile) {
-                return
-            }
-            var kids = tile.childTiles
-            if (kids && kids.length > 0) {
-                for (var i = 0; i < kids.length; i++) {
-                    addLeaf(kids[i])
-                }
-                return
-            }
-            var wins = tile.windows
-            var u
-            for (var j = 0; j < wins.length; j++) {
-                var g = wins[j].frameGeometry
-                if (!g || g.width < 50 || g.height < 50) {
-                    continue
-                }
-                if (!u) {
-                    u = Qt.rect(g.x, g.y, g.width, g.height)
-                } else {
-                    var ux1 = Math.min(u.x, g.x)
-                    var uy1 = Math.min(u.y, g.y)
-                    var ux2 = Math.max(u.x + u.width, g.x + g.width)
-                    var uy2 = Math.max(u.y + u.height, g.y + g.height)
-                    u = Qt.rect(ux1, uy1, ux2 - ux1, uy2 - uy1)
-                }
-            }
-            if (u) {
-                consider(u)
-            }
-        }
-
-        // Walk to the tree root from the first tiled window on this screen
-        // and desktop, then collect every leaf's windows.
-        var root = null
+        // Exact partition lines from KWin's real quick-tile tree:
+        // Workspace.rootTile() is the grid root for this output and desktop,
+        // and its children are the grid cells. Tile.absoluteGeometry is the
+        // tile's own geometry — layered windows can never skew the splits
+        // the way window-frame unions did.
         try {
-            var wins = Workspace.stackingOrder
-            var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
-            for (var i = 0; i < wins.length; i++) {
-                var w = wins[i]
-                if (!w || !w.normalWindow || !w.tile) {
-                    continue
+            var root = Workspace.rootTile(dragScreen, Workspace.currentDesktop)
+            if (root) {
+                var kids = root.tiles
+                if (!kids || kids.length === 0) {
+                    kids = root.childTiles
                 }
-                if (desktopId !== null && !w.onAllDesktops && w.desktops) {
-                    var onCurrent = false
-                    for (var k = 0; k < w.desktops.length; k++) {
-                        if (w.desktops[k].id === desktopId) {
-                            onCurrent = true
-                            break
+                if (kids) {
+                    for (var i = 0; i < kids.length; i++) {
+                        if (kids[i]) {
+                            consider(kids[i].absoluteGeometry)
                         }
                     }
-                    if (!onCurrent) {
-                        continue
-                    }
                 }
-                if (dragScreen && (!w.output || w.output !== dragScreen)) {
-                    continue
-                }
-                root = w.tile
-                break
-            }
-            if (root) {
-                // Assumes a single tile tree per desktop (the quick grid).
-                // Custom tilings with several independent roots would only
-                // contribute the tree the first tiled window belongs to.
-                var p = root.parentTile
-                while (p) {
-                    root = p
-                    p = root.parentTile
-                }
-                addLeaf(root)
             }
         } catch (e) {
-            // Tile tree not reachable here: keep the default grid.
+            // Tile API not reachable here: keep the default grid.
         }
 
         var hs = 0.5
@@ -414,6 +372,13 @@ PlasmaCore.Dialog {
             fullZone = false
             retracted = true
         }
+        // KWin's native snap outline (the same renderer native edge-dragging
+        // uses) tracks the highlight and moves with live grid changes.
+        if (highlightedZone !== "" && highlightGeometry.width > 0) {
+            Workspace.showOutline(highlightGeometry)
+        } else {
+            Workspace.hideOutline()
+        }
     }
 
     // End the drag. flyOut=true: nothing was dropped on a layout, so the
@@ -426,6 +391,7 @@ PlasmaCore.Dialog {
         dragWindow = null
         highlightedZone = ""
         fullZone = false
+        Workspace.hideOutline()
         if (flyOut) {
             retracted = true
             hideTimer.restart()
@@ -499,76 +465,6 @@ PlasmaCore.Dialog {
             vSplit: popup.vSplit
             expanded: popup.fullZone && !popup.retracted
             peeking: !popup.fullZone && !popup.retracted
-        }
-
-        // Fullscreen, click-through overlay that mirrors the native KWin
-        // outline while a layout card is hovered (target-cell preview).
-        // Position/size come from the same MaximizeArea-based math KWin's
-        // quickTileGeometry() uses.
-        PlasmaCore.Dialog {
-            id: zoneOverlay
-            // Shown only while the popup is up AND a layout card is hovered.
-            // Declarative binding: reacts only when the highlighted zone
-            // (or popup visibility/drag state) actually changes, so nothing
-            // is churned on the 16ms poll.
-            visible: popup.dragging && popup.visible && popup.highlightedZone !== ""
-            type: PlasmaCore.Dialog.OnScreenDisplay
-            location: PlasmaCore.Types.Desktop
-            backgroundHints: PlasmaCore.Types.NoBackground
-            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
-            hideOnWindowDeactivate: false
-            outputOnly: true
-            x: popup.screenArea.x
-            y: popup.screenArea.y
-            // Declared full-screen size properties, so the overlay window is
-            // born at the full client area instead of being sized to its
-            // first highlight.
-            width: popup.screenArea.width
-            height: popup.screenArea.height
-            // Explicit resize whenever shown, never on the poll.
-            onVisibleChanged: {
-                if (visible) {
-                    setWidth(popup.screenArea.width)
-                    setHeight(popup.screenArea.height)
-                }
-            }
-
-            // Full-size content host so the highlight always has a correctly
-            // sized parent context.
-            Item {
-                id: overlayContent
-                width: zoneOverlay.width
-                height: zoneOverlay.height
-
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (KZones zone pattern).
-                Item {
-                    id: highlightHost
-                    x: popup.highlightGeometry.x - popup.screenArea.x
-                    y: popup.highlightGeometry.y - popup.screenArea.y
-                    width: popup.highlightGeometry.width
-                    height: popup.highlightGeometry.height
-
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 8
-                        color: overlayHelper.accentColor
-                        opacity: 0.12
-                        border.color: overlayHelper.accentColor
-                        border.width: 3
-                    }
-
-                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                }
-
-                Components.ColorHelper {
-                    id: overlayHelper
-                }
-            }
         }
 
         Timer {
