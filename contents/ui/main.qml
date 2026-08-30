@@ -102,16 +102,15 @@ PlasmaCore.Dialog {
         if (inBand) {
             showAtTop()
             visible = true
-            highlightedLayout = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
-            if (highlightedLayout !== "") {
-                zoneOverlay.showFor(highlightGeometry)
-            } else {
-                zoneOverlay.hideOverlay()
+            // Only update the layout when the hit test result actually
+            // changes; keeps the overlay binding quiet while hovering.
+            var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
+            if (hit !== highlightedLayout) {
+                highlightedLayout = hit
             }
         } else {
             highlightedLayout = ""
             visible = false
-            zoneOverlay.hideOverlay()
         }
     }
 
@@ -121,7 +120,6 @@ PlasmaCore.Dialog {
         var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
-        zoneOverlay.hideOverlay()
         if (chosen !== "") {
             pendingLayout = chosen
             // Delay so KWin has committed the drop before we snap the window.
@@ -230,48 +228,65 @@ PlasmaCore.Dialog {
         // MaximizeArea-based math KWin's quickTileGeometry() uses.
         PlasmaCore.Dialog {
             id: zoneOverlay
-            visible: false
+            // Shown only while the popup is up AND a layout card is hovered.
+            // Declarative binding: reacts only when the highlighted layout
+            // (or popup visibility/drag state) actually changes, so nothing
+            // is churned on the 16ms poll.
+            visible: popup.dragging && popup.visible && popup.highlightedLayout !== ""
             type: PlasmaCore.Dialog.OnScreenDisplay
             location: PlasmaCore.Types.Desktop
             backgroundHints: PlasmaCore.Types.NoBackground
             flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
             hideOnWindowDeactivate: false
             outputOnly: true
-
-            function showFor(rect) {
-                x = popup.screenArea.x
-                y = popup.screenArea.y
-                setWidth(popup.screenArea.width)
-                setHeight(popup.screenArea.height)
-                highlight.x = rect.x - popup.screenArea.x
-                highlight.y = rect.y - popup.screenArea.y
-                highlight.width = rect.width
-                highlight.height = rect.height
-                visible = true
+            x: popup.screenArea.x
+            y: popup.screenArea.y
+            // Declared full-screen size properties (mirroring kzones'
+            // mainDialog), so the overlay window is born at the full client
+            // area instead of being sized to its first highlight.
+            width: popup.screenArea.width
+            height: popup.screenArea.height
+            // Explicit resize whenever shown, never on the poll.
+            onVisibleChanged: {
+                if (visible) {
+                    setWidth(popup.screenArea.width)
+                    setHeight(popup.screenArea.height)
+                }
             }
 
-            function hideOverlay() {
-                visible = false
-            }
+            // Full-size content host so the highlight always has a correctly
+            // sized parent context.
+            Item {
+                id: overlayContent
+                width: zoneOverlay.width
+                height: zoneOverlay.height
 
-            Rectangle {
-                id: highlight
-                x: 0
-                y: 0
-                width: 0
-                height: 0
-                radius: 12
-                color: colorHelper.overlayFill
-                border.color: colorHelper.overlayBorder
-                border.width: 2
+                // Highlight region, positioned by geometry; the visible
+                // rectangle just fills it (kzones zone pattern).
+                Item {
+                    id: highlightHost
+                    x: popup.highlightGeometry.x - popup.screenArea.x
+                    y: popup.highlightGeometry.y - popup.screenArea.y
+                    width: popup.highlightGeometry.width
+                    height: popup.highlightGeometry.height
 
-                Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Rectangle {
+                        id: highlight
+                        anchors.fill: parent
+                        radius: 12
+                        color: overlayHelper.overlayFill
+                        border.color: overlayHelper.overlayBorder
+                        border.width: 2
+                    }
+
+                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                }
 
                 Components.ColorHelper {
-                    id: colorHelper
+                    id: overlayHelper
                 }
             }
         }
