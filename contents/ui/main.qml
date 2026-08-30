@@ -13,6 +13,11 @@ PlasmaCore.Dialog {
     flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
     hideOnWindowDeactivate: false
     outputOnly: true
+    // Declared up front (KZones pattern): the platform window is born at its
+    // final size, so the very first map after login can never be an
+    // "empty dialog" (journal: "trying to show an empty dialog" on drag 1).
+    width: stripW
+    height: stripH
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
