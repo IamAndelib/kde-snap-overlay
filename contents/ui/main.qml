@@ -71,10 +71,6 @@ PlasmaCore.Dialog {
     // KWin's interactiveMoveResizeAnchor). quickTileGeometry() is anchored
     // to it so the outline rect cannot jitter as the cursor moves.
     property point dragAnchor: Qt.point(0, 0)
-    // What we last fed to showOutline — the outline is re-asserted only when
-    // the zone or its rect actually changes (per-tick re-assertion pulses).
-    property string shownZone: ""
-    property rect shownRect: Qt.rect(0, 0, 0, 0)
     // Last valid rect quickTileGeometry produced; kept as hysteresis when a
     // tick returns a degenerate rect mid-hover.
     property rect lastNativeRect: Qt.rect(0, 0, 0, 0)
@@ -448,25 +444,22 @@ PlasmaCore.Dialog {
             retracted = true
         }
         // KWin's native snap outline (the same renderer native edge-dragging
-        // uses) tracks the highlight and moves with live grid changes. We
-        // only ever hide an outline we showed ourselves — unconditional
-        // hides would erase KWin's own native edge/corner drag previews —
-        // and we re-assert it only when the zone or its rect actually
-        // changed (per-tick re-assertion pulses the outline).
-        var outlineRect = currentZoneRect()
-        if (highlightedZone !== "" && outlineRect.width > 0) {
-            if (!outlineShown || highlightedZone !== shownZone ||
-                outlineRect.x !== shownRect.x || outlineRect.y !== shownRect.y ||
-                outlineRect.width !== shownRect.width || outlineRect.height !== shownRect.height) {
+        // uses) tracks the highlight. While a drag is active, KWin's own
+        // electric-border logic keeps hiding the outline (the cursor is not
+        // at an edge while it hovers our popup), so the outline must be
+        // re-asserted every tick — the rect is stable (fixed grab anchor +
+        // hysteresis), which makes the re-assertion visually idempotent.
+        // We only ever hide an outline we showed ourselves — unconditional
+        // hides would erase KWin's own native edge/corner drag previews.
+        if (highlightedZone !== "") {
+            var outlineRect = currentZoneRect()
+            if (outlineRect.width > 0) {
                 Workspace.showOutline(outlineRect)
-                shownZone = highlightedZone
-                shownRect = outlineRect
                 outlineShown = true
             }
         } else if (outlineShown) {
             Workspace.hideOutline()
             outlineShown = false
-            shownZone = ""
         }
     }
 
@@ -483,7 +476,6 @@ PlasmaCore.Dialog {
         if (outlineShown) {
             Workspace.hideOutline()
             outlineShown = false
-            shownZone = ""
         }
         if (flyOut) {
             retracted = true
