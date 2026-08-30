@@ -418,21 +418,29 @@ PlasmaCore.Dialog {
         }
     }
 
-    function resetDrag() {
-        // Drag ended (drop): hide instantly and cancel any pending fly-out.
+    // End the drag. flyOut=true: nothing was dropped on a layout, so the
+    // panel flies away the same way it dropped in, and the dialog hides once
+    // the animation finishes. flyOut=false: hide instantly (successful snap,
+    // or stuck-drag cleanup).
+    function resetDrag(flyOut) {
         dragging = false
         pollTimer.stop()
         dragWindow = null
         highlightedZone = ""
         fullZone = false
-        hideFlying = false
-        hideTimer.stop()
-        visible = false
+        if (flyOut) {
+            hideFlying = true
+            hideTimer.restart()
+        } else {
+            hideFlying = false
+            hideTimer.stop()
+            visible = false
+        }
     }
 
     function onDrop() {
         var chosen = highlightedZone
-        resetDrag()
+        resetDrag(chosen === "")
         if (chosen !== "") {
             pendingZone = chosen
             // Delay so KWin has committed the drop before we snap the window.
@@ -445,7 +453,7 @@ PlasmaCore.Dialog {
     // get stuck.
     function onWindowClosed(window) {
         if (dragging && window === dragWindow) {
-            resetDrag()
+            resetDrag(false)
         }
     }
 
@@ -488,7 +496,7 @@ PlasmaCore.Dialog {
             highlightedZone: popup.highlightedZone
             hSplit: popup.hSplit
             vSplit: popup.vSplit
-            expanded: popup.fullZone
+            expanded: popup.fullZone && !popup.hideFlying
             peeking: !popup.fullZone && !popup.hideFlying
         }
 
