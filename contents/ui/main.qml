@@ -32,10 +32,11 @@ PlasmaCore.Dialog {
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.min(Math.max(KWin.readConfig("activationDistance", 150), 100), 400)
-    // topGap is the popup's resting offset below the top edge (0 = KZones
-    // style, panel glued to the top). It is clamped so the whole card row
-    // (pad + cardH below the popup top) always lands inside the band.
-    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 0), 0), Math.max(activationDistance - (pad + cardH), 0))
+    // topGap is the popup's resting offset below the top edge. The 25px
+    // default replicates the old design's selector chrome — the panel top
+    // sits 25px below the screen edge. Clamped so the whole card row (pad +
+    // cardH below the popup top) always lands inside the band.
+    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 25), 0), Math.max(activationDistance - (pad + cardH), 0))
     // Cursor distance from the screen top below which the popup fully drops
     // (two-stage KZones-style reveal: peek sliver beyond this, full panel
     // within it). Defaults to KZones' trigger distance
@@ -56,8 +57,9 @@ PlasmaCore.Dialog {
     readonly property int gap: 10
     readonly property int pad: 14
     readonly property int popupH: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).height
-    // Visible sliver while the popup peeks (KZones uses a fixed 30px).
-    readonly property int peekHeight: Math.min(Math.max(KWin.readConfig("peekHeight", 30), 10), popupH - 20)
+    // Visible sliver while the popup peeks: 15px matches the old design's
+    // visible panel sliver (KZones showed 30px of selector = 15px of panel).
+    readonly property int peekHeight: Math.min(Math.max(KWin.readConfig("peekHeight", 15), 10), popupH - 20)
 
     // ---- State ----
     property rect screenArea: Qt.rect(0, 0, 1920, 1080)
