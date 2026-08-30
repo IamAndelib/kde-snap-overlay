@@ -16,9 +16,10 @@ PlasmaCore.Dialog {
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
-    // topGap is clamped so it always lands inside the trigger band; the floor is
-    // activationDistance - 20 because the popup must fit below the maximize zone.
-    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - 20, 20))
+    // topGap is clamped so the whole card row (pad + cardH below the popup top,
+    // and the popup top at least 20px down to clear the maximize zone) always
+    // lands inside the activation band.
+    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - (pad + cardH), 20))
     // Fraction of the screen width to ignore on each side of the trigger band,
     // so dragging to the corners (quarter-tile intent) doesn't open the popup.
     readonly property real edgeGapRatio: Math.min(Math.max(KWin.readConfig("edgeGapRatio", 0.25), 0), 0.5)
@@ -38,27 +39,65 @@ PlasmaCore.Dialog {
     property bool dragging: false
     property string highlightedLayout: ""
     property string pendingLayout: ""
+    // Window being dragged right now; used to abort a stuck drag if it is
+    // closed without ever finishing the move.
+    property var dragWindow: null
+
+    // The screen-space region the highlighted layout maps to.
+    readonly property rect highlightGeometry: {
+        var l = Logic.layoutById(highlightedLayout)
+        if (!l) {
+            return Qt.rect(0, 0, 0, 0)
+        }
+        return Qt.rect(
+            screenArea.x + screenArea.width * l.fx,
+            screenArea.y + screenArea.height * l.fy,
+            screenArea.width * l.fw,
+            screenArea.height * l.fh)
+    }
 
     function showAtTop() {
-        x = screenArea.x + Math.floor((screenArea.width - popupW) / 2)
+        // Clamp so the popup never starts off-screen on narrow screens.
+        x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - popupW) / 2))
         y = screenArea.y + topGap
         setWidth(popupW)
         setHeight(popupH)
     }
 
     Component.onCompleted: {
-        var outputs = Workspace.screens
-        if (outputs.length === 0) {
-            return
-        }
-        var area = Workspace.clientArea(KWin.MaximizeArea, outputs[0], Workspace.currentDesktop)
-        screenArea = Qt.rect(area.x, area.y, area.width, area.height)
-
+        refreshScreenArea()
         var order = Workspace.stackingOrder
         for (var i = 0; i < order.length; i++) {
             connectWindow(order[i])
         }
         Workspace.windowAdded.connect(connectWindow)
+        Workspace.windowClosed.connect(onWindowClosed)
+    }
+
+    // Screen under the given position, falling back to the first screen.
+    function screenForCursor(pos) {
+        var screens = Workspace.screens
+        for (var i = 0; i < screens.length; i++) {
+            var g = screens[i].geometry
+            if (g && pos.x >= g.x && pos.x < g.x + g.width && pos.y >= g.y && pos.y < g.y + g.height) {
+                return screens[i]
+            }
+        }
+        return screens.length > 0 ? screens[0] : null
+    }
+
+    // Re-query the client area (workspace geometry can change on monitor
+    // hotplug, rotation or resolution change). Called at startup and on each
+    // drag start so the band/popup/overlay always match the current screen.
+    function refreshScreenArea() {
+        var screen = screenForCursor(Workspace.cursorPos)
+        if (!screen) {
+            return
+        }
+        var area = Workspace.clientArea(KWin.MaximizeArea, screen, Workspace.currentDesktop)
+        if (area.width > 0 && area.height > 0) {
+            screenArea = Qt.rect(area.x, area.y, area.width, area.height)
+        }
     }
 
     function connectWindow(window) {
@@ -69,6 +108,8 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
+            refreshScreenArea()
+            dragWindow = window
             dragging = true
             pollTimer.start()
             onTick()
@@ -89,7 +130,12 @@ PlasmaCore.Dialog {
         if (inBand) {
             showAtTop()
             visible = true
-            highlightedLayout = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
+            // Only update the layout when the hit test result actually
+            // changes; keeps the overlay binding quiet while hovering.
+            var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
+            if (hit !== highlightedLayout) {
+                highlightedLayout = hit
+            }
         } else {
             highlightedLayout = ""
             visible = false
@@ -99,6 +145,7 @@ PlasmaCore.Dialog {
     function onDrop() {
         dragging = false
         pollTimer.stop()
+        dragWindow = null
         var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
@@ -109,11 +156,30 @@ PlasmaCore.Dialog {
         }
     }
 
+    // If the window being dragged is destroyed without emitting
+    // interactiveMoveResizeFinished (rare), reset so the popup/poll never
+    // get stuck.
+    function onWindowClosed(window) {
+        if (dragging && window === dragWindow) {
+            dragging = false
+            pollTimer.stop()
+            dragWindow = null
+            highlightedLayout = ""
+            visible = false
+        }
+    }
+
     function onCommit() {
         var layout = pendingLayout
         pendingLayout = ""
+        // A new drag may have started while the commit was pending. The tile
+        // slots act on whichever window KWin is currently handling, so
+        // applying now could tile the wrong window; drop the stale intent.
+        if (dragging) {
+            return
+        }
         var l = Logic.layoutById(layout)
-        if (l) {
+        if (l && Workspace[l.slot]) {
             Workspace[l.slot]()
         }
     }
@@ -201,6 +267,74 @@ PlasmaCore.Dialog {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Fullscreen, click-through overlay that mirrors the native KWin outline
+        // while a layout card is hovered. Position/size come from the same
+        // MaximizeArea-based math KWin's quickTileGeometry() uses.
+        PlasmaCore.Dialog {
+            id: zoneOverlay
+            // Shown only while the popup is up AND a layout card is hovered.
+            // Declarative binding: reacts only when the highlighted layout
+            // (or popup visibility/drag state) actually changes, so nothing
+            // is churned on the 16ms poll.
+            visible: popup.dragging && popup.visible && popup.highlightedLayout !== ""
+            type: PlasmaCore.Dialog.OnScreenDisplay
+            location: PlasmaCore.Types.Desktop
+            backgroundHints: PlasmaCore.Types.NoBackground
+            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
+            hideOnWindowDeactivate: false
+            outputOnly: true
+            x: popup.screenArea.x
+            y: popup.screenArea.y
+            // Declared full-screen size properties (mirroring kzones'
+            // mainDialog), so the overlay window is born at the full client
+            // area instead of being sized to its first highlight.
+            width: popup.screenArea.width
+            height: popup.screenArea.height
+            // Explicit resize whenever shown, never on the poll.
+            onVisibleChanged: {
+                if (visible) {
+                    setWidth(popup.screenArea.width)
+                    setHeight(popup.screenArea.height)
+                }
+            }
+
+            // Full-size content host so the highlight always has a correctly
+            // sized parent context.
+            Item {
+                id: overlayContent
+                width: zoneOverlay.width
+                height: zoneOverlay.height
+
+                // Highlight region, positioned by geometry; the visible
+                // rectangle just fills it (kzones zone pattern).
+                Item {
+                    id: highlightHost
+                    x: popup.highlightGeometry.x - popup.screenArea.x
+                    y: popup.highlightGeometry.y - popup.screenArea.y
+                    width: popup.highlightGeometry.width
+                    height: popup.highlightGeometry.height
+
+                    Rectangle {
+                        id: highlight
+                        anchors.fill: parent
+                        radius: 12
+                        color: overlayHelper.overlayFill
+                        border.color: overlayHelper.overlayBorder
+                        border.width: 2
+                    }
+
+                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                }
+
+                Components.ColorHelper {
+                    id: overlayHelper
                 }
             }
         }
