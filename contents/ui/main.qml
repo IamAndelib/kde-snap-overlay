@@ -54,6 +54,9 @@ PlasmaCore.Dialog {
     // Cursor within showDistance of the screen top: the selector is fully
     // expanded; hovering the selector also keeps it expanded (KZones).
     property bool fullZone: false
+    // Fly-out in progress: the selector is retracting to the retracted margin
+    // (flying up off the top edge) before the dialog actually hides.
+    property bool hideFlying: false
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
     // The layout the overlay currently previews (owns the hovered zone).
@@ -325,6 +328,9 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
+            // A new drag cancels any pending fly-out.
+            hideFlying = false
+            hideTimer.stop()
             refreshScreenArea()
             dragWindow = window
             // Re-read the grid from KWin's tile tree. A snapped window
@@ -362,6 +368,12 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
+            // Re-entering the band cancels a pending fly-out; the panel
+            // animates straight back down from wherever it is.
+            if (hideFlying) {
+                hideFlying = false
+                hideTimer.stop()
+            }
             // Position once on entry; the popup is anchored to the screen, so
             // it does not need repositioning while the cursor stays in band.
             if (!visible) {
@@ -395,17 +407,26 @@ PlasmaCore.Dialog {
                 }
             }
         } else {
+            // Fly out the same way the popup dropped in: retract the selector
+            // (its margin Behavior animates it up off the top edge) and hide
+            // the dialog once the animation has finished.
             highlightedZone = ""
-            visible = false
+            if (!hideFlying) {
+                hideFlying = true
+                hideTimer.restart()
+            }
         }
     }
 
     function resetDrag() {
+        // Drag ended (drop): hide instantly and cancel any pending fly-out.
         dragging = false
         pollTimer.stop()
         dragWindow = null
         highlightedZone = ""
         fullZone = false
+        hideFlying = false
+        hideTimer.stop()
         visible = false
     }
 
@@ -468,7 +489,7 @@ PlasmaCore.Dialog {
             hSplit: popup.hSplit
             vSplit: popup.vSplit
             expanded: popup.fullZone
-            peeking: !popup.fullZone
+            peeking: !popup.fullZone && !popup.hideFlying
         }
 
         // Fullscreen, click-through overlay that mirrors the native KWin
@@ -552,6 +573,20 @@ PlasmaCore.Dialog {
             id: commitTimer
             interval: 80
             onTriggered: onCommit()
+        }
+
+        // One-shot delay so the fly-out retract animation (150ms margin
+        // Behavior inside Selector.qml) finishes before the dialog hides.
+        Timer {
+            id: hideTimer
+            interval: 170
+            repeat: false
+            onTriggered: {
+                if (!dragging) {
+                    visible = false
+                    hideFlying = false
+                }
+            }
         }
     }
 }
