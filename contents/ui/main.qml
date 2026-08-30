@@ -100,8 +100,8 @@ PlasmaCore.Dialog {
         var bottomTops = []
 
         // A leaf rect contributes split values only if it is clearly
-        // anchored to the screen edges. clientGeometry excludes the title
-        // bar, so the "top" tolerance is larger than the horizontal one.
+        // anchored to the screen edges. Frame geometry is used so the
+        // measured edges sit exactly on the tile partition lines.
         function consider(rect) {
             if (!rect || rect.width < 50 || rect.height < 50) {
                 return
@@ -179,7 +179,7 @@ PlasmaCore.Dialog {
             var wins = tile.windows
             var u
             for (var j = 0; j < wins.length; j++) {
-                var g = wins[j].clientGeometry
+                var g = wins[j].frameGeometry
                 if (!g || g.width < 50 || g.height < 50) {
                     continue
                 }
