@@ -381,9 +381,28 @@ PlasmaCore.Dialog {
             pollTimer.start()
             onTick()
         })
+        window.interactiveMoveResizeStepped.connect(function() {
+            onMoveStepped(window)
+        })
         window.interactiveMoveResizeFinished.connect(function() {
             onDrop()
         })
+    }
+
+    // KWin re-evaluates its electric-border outline on every pointer move
+    // step of the drag — and hides it whenever its state says the cursor is
+    // not at an edge (e.g. while the cursor hovers our popup). Re-assert our
+    // outline synchronously in the same event dispatch as the step, so no
+    // frame is ever painted with the outline hidden while a zone is
+    // highlighted. The 16ms poll stays as the fallback for hides triggered
+    // outside move steps.
+    function onMoveStepped(window) {
+        if (dragging && outlineShown && highlightedZone !== "") {
+            var outlineRect = currentZoneRect()
+            if (outlineRect.width > 0) {
+                Workspace.showOutline(outlineRect)
+            }
+        }
     }
 
     // KZones' isHovering pattern: cursor inside an item's global rect.
