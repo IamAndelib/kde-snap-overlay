@@ -9,7 +9,6 @@ The following files are derived from KZones (as of 0.9.3) and are therefore
 licensed under GPL-3.0-or-later as part of this combined work:
 
 - `contents/ui/components/ColorHelper.qml`
-- `contents/ui/components/Shadow.qml`
 - `contents/ui/components/Indicator.qml`
 - `contents/ui/components/Selector.qml`
 

@@ -9,15 +9,26 @@ PlasmaCore.Dialog {
     visible: false
     type: PlasmaCore.Dialog.OnScreenDisplay
     location: PlasmaCore.Types.Desktop
-    backgroundHints: PlasmaCore.Types.NoBackground
-    flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
+    // Native Plasma dialog background: theme translucency, KWin blur-behind,
+    // theme border and drop shadow — the system shell look.
+    backgroundHints: PlasmaCore.Types.NormalBackground
+    flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint
     hideOnWindowDeactivate: false
     outputOnly: true
-    // Declared up front (KZones pattern): the platform window is born at its
-    // final size, so the very first map after login can never be an
-    // "empty dialog" (journal: "trying to show an empty dialog" on drag 1).
-    width: stripW
-    height: stripH
+    // The Dialog auto-sizes from the mainItem's implicit size (the standard
+    // plasmashell pattern), so the window is born at the panel's size — no
+    // empty-map races and no manual setWidth/setHeight.
+    // Reveal via window position (two-stage, KZones-style): retracted = fully
+    // above the screen, peek = bottom sliver on-screen, expanded = resting
+    // offset below the top edge. The Behavior animates every transition and
+    // the fly-out is the retracted position plus a delayed hide.
+    x: screenArea.x + Math.floor((screenArea.width - width) / 2)
+    y: retracted ? screenArea.y - height
+        : (fullZone ? screenArea.y + topGap
+                    : screenArea.y - height + peekHeight)
+    Behavior on y {
+        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+    }
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.min(Math.max(KWin.readConfig("activationDistance", 150), 100), 400)
@@ -44,14 +55,9 @@ PlasmaCore.Dialog {
     readonly property int cardH: 70
     readonly property int gap: 10
     readonly property int pad: 14
-    readonly property int popupW: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).width
     readonly property int popupH: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).height
     // Visible sliver while the popup peeks (KZones uses a fixed 30px).
     readonly property int peekHeight: Math.min(Math.max(KWin.readConfig("peekHeight", 30), 10), popupH - 20)
-    // The dialog is a static top strip sized to hold the peeking and
-    // expanded selector (the selector adds 30 side / 40 vertical chrome).
-    readonly property int stripW: popupW + 30
-    readonly property int stripH: topGap + popupH + 40
 
     // ---- State ----
     property rect screenArea: Qt.rect(0, 0, 1920, 1080)
@@ -276,16 +282,6 @@ PlasmaCore.Dialog {
         vSplit = Math.min(0.9, Math.max(0.1, vs))
     }
 
-    function showAtTop() {
-        // Position once on band entry: a static top strip holding the
-        // peeking and expanded selector. The selector's own margin Behavior
-        // (inside Selector.qml) animates the two-stage reveal inside it.
-        x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - stripW) / 2))
-        y = screenArea.y
-        setWidth(stripW)
-        setHeight(stripH)
-    }
-
     Component.onCompleted: {
         refreshScreenArea()
         var order = Workspace.stackingOrder
@@ -357,8 +353,8 @@ PlasmaCore.Dialog {
             splitsFromTileTree()
             dragging = true
             // KZones' show(): visible at grab, so the first map after login
-            // happens with seconds of slack instead of at the moment of truth.
-            showAtTop()
+            // happens with seconds of slack instead of at the moment of
+            // truth. The dialog starts retracted (fully above the screen).
             visible = true
             lastTickPos = Qt.point(-1, -1)
             pollTimer.start()
@@ -390,8 +386,13 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            // Back inside the band: reveal the selector again.
+            // Back inside the band: reveal the selector again. The dialog
+            // may have been hidden by the fly-out — remapping is safe, the
+            // window is sized from the mainItem's implicit size.
             retracted = false
+            if (!visible) {
+                visible = true
+            }
             // Keep the grid live: re-read it whenever the cursor moved so the
             // diagrams and overlay track the re-tiled layout.
             if (pos.x !== lastTickPos.x || pos.y !== lastTickPos.y) {
@@ -405,11 +406,10 @@ PlasmaCore.Dialog {
             var hovering = pointInRect(pos, selectorRect())
             fullZone = hovering || (pos.y - screenArea.y) < showDistance
             // Selection is popup-area-only: only the cards highlight; the
-            // panel padding and the rest of the screen stay inert. Hover
-            // checks pause while the margin animation runs (KZones parity).
-            var hit = ""
-            if (fullZone && !zoneSelector.animating) {
-                var g = zoneSelector.panel.mapToGlobal(Qt.point(0, 0))
+            // panel padding and the rest of the screen stay inert.
+            var hit = highlightedZone
+            if (fullZone) {
+                var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
                 hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
             }
             if (hit !== highlightedZone) {
@@ -419,11 +419,14 @@ PlasmaCore.Dialog {
                 }
             }
         } else {
-            // Outside the band: retract the selector. KZones keeps the dialog
-            // up for the whole drag — it hides only at drag end.
+            // Outside the band: fly the panel up off the top edge, then hide
+            // the dialog once the animation has finished.
             highlightedZone = ""
             fullZone = false
             retracted = true
+            if (!hideTimer.running) {
+                hideTimer.restart()
+            }
         }
         // KWin's native snap outline (the same renderer native edge-dragging
         // uses) tracks the highlight and moves with live grid changes. We
@@ -457,8 +460,7 @@ PlasmaCore.Dialog {
             retracted = true
             hideTimer.restart()
         } else {
-            retracted = false
-            hideTimer.stop()
+            retracted = true
             visible = false
         }
     }
@@ -498,12 +500,12 @@ PlasmaCore.Dialog {
     }
 
     // Dialog's default property only accepts Items, so all UI and non-Item
-    // children (Timers) live inside a plain Item (the KZones pattern).
+    // children (Timers) live inside a plain Item (the KZones pattern). The
+    // implicit size drives the Dialog's auto-sizing (the standard plasmashell
+    // pattern), so the window is born at the panel's size.
     Item {
-        // Explicit size (KZones' mainItem pattern) instead of anchors.fill:
-        // the Dialog's window sizing chain stays honest from the first frame.
-        width: popup.width
-        height: popup.height
+        implicitWidth: zoneSelector.implicitWidth
+        implicitHeight: zoneSelector.implicitHeight
 
         // KZones-style selector (forked from KZones' Selector.qml): panel
         // skin, three merged layout cards and the three-state topMargin
@@ -541,8 +543,8 @@ PlasmaCore.Dialog {
             onTriggered: onCommit()
         }
 
-        // One-shot delay so the fly-out retract animation (150ms margin
-        // Behavior inside Selector.qml) finishes before the dialog hides.
+        // One-shot delay so the fly-out animation (the y Behavior easing the
+        // panel above the screen) finishes before the dialog hides.
         Timer {
             id: hideTimer
             interval: 170
@@ -550,7 +552,7 @@ PlasmaCore.Dialog {
             onTriggered: {
                 if (!dragging) {
                     visible = false
-                    retracted = false
+                    retracted = true
                 }
             }
         }
