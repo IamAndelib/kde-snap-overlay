@@ -39,6 +39,19 @@ PlasmaCore.Dialog {
     property string highlightedLayout: ""
     property string pendingLayout: ""
 
+    // The screen-space region the highlighted layout maps to.
+    readonly property rect highlightGeometry: {
+        var l = Logic.layoutById(highlightedLayout)
+        if (!l) {
+            return Qt.rect(0, 0, 0, 0)
+        }
+        return Qt.rect(
+            screenArea.x + screenArea.width * l.fx,
+            screenArea.y + screenArea.height * l.fy,
+            screenArea.width * l.fw,
+            screenArea.height * l.fh)
+    }
+
     function showAtTop() {
         x = screenArea.x + Math.floor((screenArea.width - popupW) / 2)
         y = screenArea.y + topGap
@@ -90,9 +103,15 @@ PlasmaCore.Dialog {
             showAtTop()
             visible = true
             highlightedLayout = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
+            if (highlightedLayout !== "") {
+                zoneOverlay.showFor(highlightGeometry)
+            } else {
+                zoneOverlay.hideOverlay()
+            }
         } else {
             highlightedLayout = ""
             visible = false
+            zoneOverlay.hideOverlay()
         }
     }
 
@@ -102,6 +121,7 @@ PlasmaCore.Dialog {
         var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
+        zoneOverlay.hideOverlay()
         if (chosen !== "") {
             pendingLayout = chosen
             // Delay so KWin has committed the drop before we snap the window.
@@ -201,6 +221,57 @@ PlasmaCore.Dialog {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Fullscreen, click-through overlay that mirrors the native KWin outline
+        // while a layout card is hovered. Position/size come from the same
+        // MaximizeArea-based math KWin's quickTileGeometry() uses.
+        PlasmaCore.Dialog {
+            id: zoneOverlay
+            visible: false
+            type: PlasmaCore.Dialog.OnScreenDisplay
+            location: PlasmaCore.Types.Desktop
+            backgroundHints: PlasmaCore.Types.NoBackground
+            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
+            hideOnWindowDeactivate: false
+            outputOnly: true
+
+            function showFor(rect) {
+                x = popup.screenArea.x
+                y = popup.screenArea.y
+                setWidth(popup.screenArea.width)
+                setHeight(popup.screenArea.height)
+                highlight.x = rect.x - popup.screenArea.x
+                highlight.y = rect.y - popup.screenArea.y
+                highlight.width = rect.width
+                highlight.height = rect.height
+                visible = true
+            }
+
+            function hideOverlay() {
+                visible = false
+            }
+
+            Rectangle {
+                id: highlight
+                x: 0
+                y: 0
+                width: 0
+                height: 0
+                radius: 12
+                color: colorHelper.overlayFill
+                border.color: colorHelper.overlayBorder
+                border.width: 2
+
+                Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+
+                Components.ColorHelper {
+                    id: colorHelper
                 }
             }
         }
