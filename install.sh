@@ -12,7 +12,7 @@ PKG_ID="kde-snap-overlay"
 if command -v kpackagetool6 >/dev/null 2>&1; then
     KPACKAGE="kpackagetool6"
     KWRITE="kwriteconfig6"
-    QDBUS="$(command -v qdbus6 || command -v qdbus || true)"
+    QDBUS="$(command -v qdbus6 || command -v qdbus-qt6 || command -v qdbus || true)"
 elif command -v kpackagetool5 >/dev/null 2>&1; then
     KPACKAGE="kpackagetool5"
     KWRITE="kwriteconfig5"
