@@ -12,7 +12,7 @@
                 "Email": "andelibtarefsrizon@gmail.com"
             }
         ],
-        "Version": "1.6.3"
+        "Version": "1.6.4"
     },
     "X-Plasma-API": "declarativescript",
     "X-Plasma-MainScript": "ui/main.qml"

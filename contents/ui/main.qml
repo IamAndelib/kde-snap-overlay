@@ -59,9 +59,9 @@ PlasmaCore.Dialog {
     // Cursor within showDistance of the screen top: the selector is fully
     // expanded; hovering the selector also keeps it expanded (KZones).
     property bool fullZone: false
-    // Fly-out in progress: the selector is retracting to the retracted margin
-    // (flying up off the top edge) before the dialog actually hides.
-    property bool hideFlying: false
+    // Fly-out / fully-retracted state: the selector sits at the retracted
+    // margin (flying up off the top edge), inside the still-visible dialog.
+    property bool retracted: true
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
     // The layout the overlay currently previews (owns the hovered zone).
@@ -333,8 +333,10 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
-            // A new drag cancels any pending fly-out.
-            hideFlying = false
+            // KZones' activation: the dialog maps at grab time — long before
+            // the cursor ever reaches the band — and the selector starts
+            // fully retracted inside it.
+            retracted = true
             hideTimer.stop()
             refreshScreenArea()
             dragWindow = window
@@ -343,6 +345,10 @@ PlasmaCore.Dialog {
             // is leaving keeps being reflected.
             splitsFromTileTree()
             dragging = true
+            // KZones' show(): visible at grab, so the first map after login
+            // happens with seconds of slack instead of at the moment of truth.
+            showAtTop()
+            visible = true
             lastTickPos = Qt.point(-1, -1)
             pollTimer.start()
             onTick()
@@ -373,18 +379,8 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            // Re-entering the band cancels a pending fly-out; the panel
-            // animates straight back down from wherever it is.
-            if (hideFlying) {
-                hideFlying = false
-                hideTimer.stop()
-            }
-            // Position once on entry; the popup is anchored to the screen, so
-            // it does not need repositioning while the cursor stays in band.
-            if (!visible) {
-                showAtTop()
-                visible = true
-            }
+            // Back inside the band: reveal the selector again.
+            retracted = false
             // Keep the grid live: re-read it whenever the cursor moved so the
             // diagrams and overlay track the re-tiled layout.
             if (pos.x !== lastTickPos.x || pos.y !== lastTickPos.y) {
@@ -412,14 +408,11 @@ PlasmaCore.Dialog {
                 }
             }
         } else {
-            // Fly out the same way the popup dropped in: retract the selector
-            // (its margin Behavior animates it up off the top edge) and hide
-            // the dialog once the animation has finished.
+            // Outside the band: retract the selector. KZones keeps the dialog
+            // up for the whole drag — it hides only at drag end.
             highlightedZone = ""
-            if (!hideFlying) {
-                hideFlying = true
-                hideTimer.restart()
-            }
+            fullZone = false
+            retracted = true
         }
     }
 
@@ -434,10 +427,10 @@ PlasmaCore.Dialog {
         highlightedZone = ""
         fullZone = false
         if (flyOut) {
-            hideFlying = true
+            retracted = true
             hideTimer.restart()
         } else {
-            hideFlying = false
+            retracted = false
             hideTimer.stop()
             visible = false
         }
@@ -480,7 +473,10 @@ PlasmaCore.Dialog {
     // Dialog's default property only accepts Items, so all UI and non-Item
     // children (Timers) live inside a plain Item (the KZones pattern).
     Item {
-        anchors.fill: parent
+        // Explicit size (KZones' mainItem pattern) instead of anchors.fill:
+        // the Dialog's window sizing chain stays honest from the first frame.
+        width: popup.width
+        height: popup.height
 
         // KZones-style selector (forked from KZones' Selector.qml): panel
         // skin, three merged layout cards and the three-state topMargin
@@ -501,8 +497,8 @@ PlasmaCore.Dialog {
             highlightedZone: popup.highlightedZone
             hSplit: popup.hSplit
             vSplit: popup.vSplit
-            expanded: popup.fullZone && !popup.hideFlying
-            peeking: !popup.fullZone && !popup.hideFlying
+            expanded: popup.fullZone && !popup.retracted
+            peeking: !popup.fullZone && !popup.retracted
         }
 
         // Fullscreen, click-through overlay that mirrors the native KWin
@@ -597,7 +593,7 @@ PlasmaCore.Dialog {
             onTriggered: {
                 if (!dragging) {
                     visible = false
-                    hideFlying = false
+                    retracted = false
                 }
             }
         }
