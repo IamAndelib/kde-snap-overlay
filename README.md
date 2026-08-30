@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.1.5.kwinscript` from the repo root or the [v1.1.5 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.1.5) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.2.kwinscript` from the repo root or the [v1.2 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2) (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -99,6 +99,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 - Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window.
 - While dragging, a 16 ms poll of `Workspace.cursorPos` shows the popup (a `PlasmaCore.Dialog`, click-through via `outputOnly`) whenever the cursor is in the top band.
 - On release, the highlighted layout's `slotWindowQuickTile*` is called. A short delay lets KWin commit the drop first.
+- The zone overlay highlight is **dynamic**: before the popup shows, the script reads KWin's live tile tree (through a tiled window's `tile` property) and derives the current grid splits, so the highlight always matches the exact empty space the snap would fill — e.g. snapping a window at 30% makes the opposite preview show the remaining 70%.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme
