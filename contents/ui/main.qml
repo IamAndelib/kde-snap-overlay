@@ -62,6 +62,11 @@ PlasmaCore.Dialog {
     // Fly-out / fully-retracted state: the selector sits at the retracted
     // margin (flying up off the top edge), inside the still-visible dialog.
     property bool retracted: true
+    // Whether the native outline currently on screen is OURS (shown via
+    // showOutline for a hovered card). Only ever hide an outline we own —
+    // unconditional hides would erase KWin's own native edge/corner
+    // drag previews.
+    property bool outlineShown: false
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
     // The layout the overlay currently previews (owns the hovered zone).
@@ -192,28 +197,65 @@ PlasmaCore.Dialog {
             }
         }
 
-        // Exact partition lines from KWin's real quick-tile tree:
-        // Workspace.rootTile() is the grid root for this output and desktop,
-        // and its children are the grid cells. Tile.absoluteGeometry is the
-        // tile's own geometry — layered windows can never skew the splits
-        // the way window-frame unions did.
-        try {
-            var root = Workspace.rootTile(dragScreen, Workspace.currentDesktop)
-            if (root) {
-                var kids = root.tiles
-                if (!kids || kids.length === 0) {
-                    kids = root.childTiles
+        // Exact partition lines from KWin's real quick-tile tree. Entry is
+        // the proven walk (rootTile() returns the custom-tiling root, not
+        // the tree the quick-grid splits live in); the measurement is the
+        // exact one: leaves' Tile.absoluteGeometry — KWin's own tile rects,
+        // so layered windows can never skew them the way window-frame
+        // unions did.
+        function addTileRects(tile) {
+            if (!tile) {
+                return
+            }
+            var kids = tile.childTiles
+            if (kids && kids.length > 0) {
+                for (var i = 0; i < kids.length; i++) {
+                    addTileRects(kids[i])
                 }
-                if (kids) {
-                    for (var i = 0; i < kids.length; i++) {
-                        if (kids[i]) {
-                            consider(kids[i].absoluteGeometry)
+                return
+            }
+            if (tile.absoluteGeometry) {
+                consider(tile.absoluteGeometry)
+            }
+        }
+
+        try {
+            var root = null
+            var wins = Workspace.stackingOrder
+            var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
+            for (var i = 0; i < wins.length; i++) {
+                var w = wins[i]
+                if (!w || !w.normalWindow || !w.tile) {
+                    continue
+                }
+                if (desktopId !== null && !w.onAllDesktops && w.desktops) {
+                    var onCurrent = false
+                    for (var k = 0; k < w.desktops.length; k++) {
+                        if (w.desktops[k].id === desktopId) {
+                            onCurrent = true
+                            break
                         }
                     }
+                    if (!onCurrent) {
+                        continue
+                    }
                 }
+                if (dragScreen && (!w.output || w.output !== dragScreen)) {
+                    continue
+                }
+                root = w.tile
+                break
+            }
+            if (root) {
+                var p = root.parentTile
+                while (p) {
+                    root = p
+                    p = root.parentTile
+                }
+                addTileRects(root)
             }
         } catch (e) {
-            // Tile API not reachable here: keep the default grid.
+            // Tile tree not reachable here: keep the default grid.
         }
 
         var hs = 0.5
@@ -373,11 +415,15 @@ PlasmaCore.Dialog {
             retracted = true
         }
         // KWin's native snap outline (the same renderer native edge-dragging
-        // uses) tracks the highlight and moves with live grid changes.
+        // uses) tracks the highlight and moves with live grid changes. We
+        // only ever hide an outline we showed ourselves — unconditional
+        // hides would erase KWin's own native edge/corner drag previews.
         if (highlightedZone !== "" && highlightGeometry.width > 0) {
             Workspace.showOutline(highlightGeometry)
-        } else {
+            outlineShown = true
+        } else if (outlineShown) {
             Workspace.hideOutline()
+            outlineShown = false
         }
     }
 
@@ -391,7 +437,10 @@ PlasmaCore.Dialog {
         dragWindow = null
         highlightedZone = ""
         fullZone = false
-        Workspace.hideOutline()
+        if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
         if (flyOut) {
             retracted = true
             hideTimer.restart()
