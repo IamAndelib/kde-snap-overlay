@@ -16,9 +16,10 @@ PlasmaCore.Dialog {
 
     // ---- Configuration ----
     readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
-    // topGap is clamped so it always lands inside the trigger band; the floor is
-    // activationDistance - 20 because the popup must fit below the maximize zone.
-    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - 20, 20))
+    // topGap is clamped so the whole card row (pad + cardH below the popup top,
+    // and the popup top at least 20px down to clear the maximize zone) always
+    // lands inside the activation band.
+    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - (pad + cardH), 20))
     // Fraction of the screen width to ignore on each side of the trigger band,
     // so dragging to the corners (quarter-tile intent) doesn't open the popup.
     readonly property real edgeGapRatio: Math.min(Math.max(KWin.readConfig("edgeGapRatio", 0.25), 0), 0.5)
@@ -38,6 +39,9 @@ PlasmaCore.Dialog {
     property bool dragging: false
     property string highlightedLayout: ""
     property string pendingLayout: ""
+    // Window being dragged right now; used to abort a stuck drag if it is
+    // closed without ever finishing the move.
+    property var dragWindow: null
 
     // The screen-space region the highlighted layout maps to.
     readonly property rect highlightGeometry: {
@@ -53,25 +57,47 @@ PlasmaCore.Dialog {
     }
 
     function showAtTop() {
-        x = screenArea.x + Math.floor((screenArea.width - popupW) / 2)
+        // Clamp so the popup never starts off-screen on narrow screens.
+        x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - popupW) / 2))
         y = screenArea.y + topGap
         setWidth(popupW)
         setHeight(popupH)
     }
 
     Component.onCompleted: {
-        var outputs = Workspace.screens
-        if (outputs.length === 0) {
-            return
-        }
-        var area = Workspace.clientArea(KWin.MaximizeArea, outputs[0], Workspace.currentDesktop)
-        screenArea = Qt.rect(area.x, area.y, area.width, area.height)
-
+        refreshScreenArea()
         var order = Workspace.stackingOrder
         for (var i = 0; i < order.length; i++) {
             connectWindow(order[i])
         }
         Workspace.windowAdded.connect(connectWindow)
+        Workspace.windowClosed.connect(onWindowClosed)
+    }
+
+    // Screen under the given position, falling back to the first screen.
+    function screenForCursor(pos) {
+        var screens = Workspace.screens
+        for (var i = 0; i < screens.length; i++) {
+            var g = screens[i].geometry
+            if (g && pos.x >= g.x && pos.x < g.x + g.width && pos.y >= g.y && pos.y < g.y + g.height) {
+                return screens[i]
+            }
+        }
+        return screens.length > 0 ? screens[0] : null
+    }
+
+    // Re-query the client area (workspace geometry can change on monitor
+    // hotplug, rotation or resolution change). Called at startup and on each
+    // drag start so the band/popup/overlay always match the current screen.
+    function refreshScreenArea() {
+        var screen = screenForCursor(Workspace.cursorPos)
+        if (!screen) {
+            return
+        }
+        var area = Workspace.clientArea(KWin.MaximizeArea, screen, Workspace.currentDesktop)
+        if (area.width > 0 && area.height > 0) {
+            screenArea = Qt.rect(area.x, area.y, area.width, area.height)
+        }
     }
 
     function connectWindow(window) {
@@ -82,6 +108,8 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
+            refreshScreenArea()
+            dragWindow = window
             dragging = true
             pollTimer.start()
             onTick()
@@ -117,6 +145,7 @@ PlasmaCore.Dialog {
     function onDrop() {
         dragging = false
         pollTimer.stop()
+        dragWindow = null
         var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
@@ -127,11 +156,30 @@ PlasmaCore.Dialog {
         }
     }
 
+    // If the window being dragged is destroyed without emitting
+    // interactiveMoveResizeFinished (rare), reset so the popup/poll never
+    // get stuck.
+    function onWindowClosed(window) {
+        if (dragging && window === dragWindow) {
+            dragging = false
+            pollTimer.stop()
+            dragWindow = null
+            highlightedLayout = ""
+            visible = false
+        }
+    }
+
     function onCommit() {
         var layout = pendingLayout
         pendingLayout = ""
+        // A new drag may have started while the commit was pending. The tile
+        // slots act on whichever window KWin is currently handling, so
+        // applying now could tile the wrong window; drop the stale intent.
+        if (dragging) {
+            return
+        }
         var l = Logic.layoutById(layout)
-        if (l) {
+        if (l && Workspace[l.slot]) {
             Workspace[l.slot]()
         }
     }
