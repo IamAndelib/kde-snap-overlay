@@ -75,6 +75,26 @@ PlasmaCore.Dialog {
     // unconditional hides would erase KWin's own native edge/corner
     // drag previews.
     property bool outlineShown: false
+
+    // Theme dialog frames have asymmetric shadow borders (heavier at the
+    // bottom/right). Compensate the content insets by half the difference
+    // so the cards stay optically centered in the window. Guarded: falls
+    // back to 0 if the margins property is not exposed on this build.
+    readonly property real compensateTop: {
+        try {
+            return Math.max(0, (popup.margins.bottom - popup.margins.top) / 2)
+        } catch (e) {
+            return 0
+        }
+    }
+    readonly property real compensateLeft: {
+        try {
+            return Math.max(0, (popup.margins.right - popup.margins.left) / 2)
+        } catch (e) {
+            return 0
+        }
+    }
+
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
     // The layout the overlay currently previews (owns the hovered zone).
@@ -521,6 +541,8 @@ PlasmaCore.Dialog {
             gap: popup.gap
             cardW: popup.cardW
             cardH: popup.cardH
+            extraTop: popup.compensateTop
+            extraLeft: popup.compensateLeft
             layouts: Logic.LAYOUTS
             currentLayout: popup.currentLayout
             highlightedZone: popup.highlightedZone

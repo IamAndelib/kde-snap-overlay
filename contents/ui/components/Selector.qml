@@ -21,17 +21,27 @@ Item {
     property string highlightedZone: ""
     property real hSplit: 0.5
     property real vSplit: 0.5
+    // Extra asymmetric insets compensating the theme frame's shadow borders,
+    // so the cards stay optically centered in the dialog window.
+    property real extraTop: 0
+    property real extraLeft: 0
 
     // Implicit size drives the owning Dialog's auto-sizing (the standard
     // plasmashell pattern), so the window is born at the panel's size.
-    implicitWidth: row.implicitWidth + 2 * selector.pad
-    implicitHeight: row.implicitHeight + 2 * selector.pad
+    implicitWidth: row.implicitWidth + 2 * selector.pad + selector.extraLeft
+    implicitHeight: row.implicitHeight + 2 * selector.pad + selector.extraTop
 
     Row {
         id: row
 
         spacing: selector.gap
         anchors.fill: parent
+        // Per-side margins: the extra insets go on top/left to cancel the
+        // theme frame's heavier bottom/right shadow borders.
+        anchors.topMargin: selector.pad + selector.extraTop
+        anchors.leftMargin: selector.pad + selector.extraLeft
+        anchors.rightMargin: selector.pad
+        anchors.bottomMargin: selector.pad
 
         Repeater {
             model: selector.layouts
