@@ -13,37 +13,72 @@ PlasmaCore.Dialog {
     flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
     hideOnWindowDeactivate: false
     outputOnly: true
+    // Declared up front (KZones pattern): the platform window is born at its
+    // final size, so the very first map after login can never be an
+    // "empty dialog" (journal: "trying to show an empty dialog" on drag 1).
+    width: stripW
+    height: stripH
 
     // ---- Configuration ----
-    readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
-    // topGap is clamped so the whole card row (pad + cardH below the popup top,
-    // and the popup top at least 20px down to clear the maximize zone) always
-    // lands inside the activation band.
-    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 60), 20), Math.max(activationDistance - (pad + cardH), 20))
+    readonly property int activationDistance: Math.min(Math.max(KWin.readConfig("activationDistance", 150), 100), 400)
+    // topGap is the popup's resting offset below the top edge (0 = KZones
+    // style, panel glued to the top). It is clamped so the whole card row
+    // (pad + cardH below the popup top) always lands inside the band.
+    readonly property int topGap: Math.min(Math.max(KWin.readConfig("topGap", 0), 0), Math.max(activationDistance - (pad + cardH), 0))
+    // Cursor distance from the screen top below which the popup fully drops
+    // (two-stage KZones-style reveal: peek sliver beyond this, full panel
+    // within it). Defaults to KZones' trigger distance
+    // (zoneSelectorTriggerDistance 1 -> 1*50+25 = 75px).
+    readonly property int showDistance: {
+        var v = KWin.readConfig("showDistance", 75)
+        return Math.min(Math.max(v, topGap + 10), Math.max(activationDistance - 10, topGap + 10))
+    }
     // Fraction of the screen width to ignore on each side of the trigger band,
     // so dragging to the corners (quarter-tile intent) doesn't open the popup.
     readonly property real edgeGapRatio: Math.min(Math.max(KWin.readConfig("edgeGapRatio", 0.25), 0), 0.5)
     // Horizontal trigger margin on each side, derived from the current screen width.
     readonly property real edgeGap: screenArea.width * edgeGapRatio
 
-    // ---- Card / popup metrics ----
-    readonly property int cardW: 84
-    readonly property int cardH: 56
-    readonly property int gap: 8
-    readonly property int pad: 12
-    readonly property int popupW: Logic.popupSize(cardW, cardH, gap, pad).width
-    readonly property int popupH: Logic.popupSize(cardW, cardH, gap, pad).height
+    // ---- Card / popup metrics (KZones indicator sizing) ----
+    readonly property int cardW: 130
+    readonly property int cardH: 70
+    readonly property int gap: 10
+    readonly property int pad: 14
+    readonly property int popupW: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).width
+    readonly property int popupH: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).height
+    // Visible sliver while the popup peeks (KZones uses a fixed 30px).
+    readonly property int peekHeight: Math.min(Math.max(KWin.readConfig("peekHeight", 30), 10), popupH - 20)
+    // The dialog is a static top strip sized to hold the peeking and
+    // expanded selector (the selector adds 30 side / 40 vertical chrome).
+    readonly property int stripW: popupW + 30
+    readonly property int stripH: topGap + popupH + 40
 
     // ---- State ----
     property rect screenArea: Qt.rect(0, 0, 1920, 1080)
     property bool dragging: false
-    property string highlightedLayout: ""
-    property string pendingLayout: ""
+    // Cursor within showDistance of the screen top: the selector is fully
+    // expanded; hovering the selector also keeps it expanded (KZones).
+    property bool fullZone: false
+    // Fly-out / fully-retracted state: the selector sits at the retracted
+    // margin (flying up off the top edge), inside the still-visible dialog.
+    property bool retracted: true
+    // Whether the native outline currently on screen is OURS (shown via
+    // showOutline for a hovered card). Only ever hide an outline we own —
+    // unconditional hides would erase KWin's own native edge/corner
+    // drag previews.
+    property bool outlineShown: false
+    // Hovered zone id (member of one of the three layouts), "" when none.
+    property string highlightedZone: ""
+    // The layout the overlay currently previews (owns the hovered zone).
+    property string currentLayout: "columns"
+    property string pendingZone: ""
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
     property var dragWindow: null
     // Output the drag happens on; the tile tree is per-output/per-desktop.
     property var dragScreen: null
+    // Last poll position; the live grid is only re-read when the cursor moves.
+    property var lastTickPos: Qt.point(-1, -1)
 
     // Current quick-tile grid splits (relative to screenArea), read from
     // KWin's live tile tree at drag start so the highlight matches the space
@@ -51,29 +86,29 @@ PlasmaCore.Dialog {
     property real hSplit: 0.5
     property real vSplit: 0.5
 
-    // The screen-space region the highlighted layout maps to. Uses the
-    // dynamic grid splits instead of the static layout fractions, matching
-    // the geometry KWin's quickTileGeometry()/tileForMode() would report.
-    // hSplit/vSplit are read directly here (not through a JS call) so the
-    // binding re-evaluates when the grid changes.
-    readonly property rect highlightGeometry: {
-        var l = Logic.layoutById(highlightedLayout)
-        if (!l) {
-            return Qt.rect(0, 0, 0, 0)
+    // The screen-space region the highlighted zone maps to, evaluated fresh
+    // on every call — a cached binding would go stale between highlight
+    // changes, since cursorPos is not a notifiable dependency. Resolution
+    // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
+    // native snapping feeds its outline (probed, not exposed on every
+    // build); (2) the live grid splits measured from the real tile tree.
+    function currentZoneRect() {
+        if (dragWindow && highlightedZone !== "") {
+            try {
+                if (dragWindow.quickTileGeometry) {
+                    var native = dragWindow.quickTileGeometry(
+                        Logic.zoneMode(highlightedZone), Workspace.cursorPos)
+                    if (native && native.width > 0 && native.height > 0) {
+                        return Qt.rect(native.x, native.y, native.width, native.height)
+                    }
+                }
+            } catch (e) {
+                // Not scriptable here: fall through to the tile-tree splits.
+            }
         }
-        var hs = hSplit
-        var vs = vSplit
-        var f
-        switch (highlightedLayout) {
-        case "left":        f = { fx: 0,   fy: 0,  fw: hs,     fh: 1 }; break
-        case "right":       f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: 1 }; break
-        case "top":         f = { fx: 0,   fy: 0,  fw: 1,      fh: vs }; break
-        case "bottom":      f = { fx: 0,   fy: vs, fw: 1,      fh: 1 - vs }; break
-        case "topLeft":     f = { fx: 0,   fy: 0,  fw: hs,     fh: vs }; break
-        case "topRight":    f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: vs }; break
-        case "bottomLeft":  f = { fx: 0,   fy: vs, fw: hs,     fh: 1 - vs }; break
-        case "bottomRight": f = { fx: hs,  fy: vs, fw: 1 - hs, fh: 1 - vs }; break
-        default:            f = { fx: 0,   fy: 0,  fw: 0,      fh: 0 }; break
+        var f = Logic.zoneRectFrac(highlightedZone, hSplit, vSplit)
+        if (!f || (f.fw === 0 && f.fh === 0)) {
+            return Qt.rect(0, 0, 0, 0)
         }
         return Qt.rect(
             screenArea.x + screenArea.width * f.fx,
@@ -100,10 +135,10 @@ PlasmaCore.Dialog {
         var bottomTops = []
 
         // A leaf rect contributes split values only if it is clearly
-        // anchored to the screen edges. Frame geometry is used so the
-        // measured edges sit exactly on the tile partition lines. With
-        // margins/gaps in a custom tiling the frame stays inset from the
-        // edges, so such setups fall through to the default grid.
+        // anchored to the screen edges. Tile.absoluteGeometry is used so the
+        // measured edges sit exactly on the tile partition lines — layered
+        // windows cannot skew them. Custom tilings whose cells stay inset
+        // from the edges fall through to the default grid.
         function consider(rect) {
             if (!rect || rect.width < 50 || rect.height < 50) {
                 return
@@ -164,46 +199,30 @@ PlasmaCore.Dialog {
             }
         }
 
-        // Union of the client rects of every window a tile manages. For a
-        // quick leaf that is one window; for a custom tile holding several
-        // stacked windows, the union is the cell they jointly fill.
-        function addLeaf(tile) {
+        // Exact partition lines from KWin's real quick-tile tree. Entry is
+        // the proven walk (rootTile() returns the custom-tiling root, not
+        // the tree the quick-grid splits live in); the measurement is the
+        // exact one: leaves' Tile.absoluteGeometry — KWin's own tile rects,
+        // so layered windows can never skew them the way window-frame
+        // unions did.
+        function addTileRects(tile) {
             if (!tile) {
                 return
             }
             var kids = tile.childTiles
             if (kids && kids.length > 0) {
                 for (var i = 0; i < kids.length; i++) {
-                    addLeaf(kids[i])
+                    addTileRects(kids[i])
                 }
                 return
             }
-            var wins = tile.windows
-            var u
-            for (var j = 0; j < wins.length; j++) {
-                var g = wins[j].frameGeometry
-                if (!g || g.width < 50 || g.height < 50) {
-                    continue
-                }
-                if (!u) {
-                    u = Qt.rect(g.x, g.y, g.width, g.height)
-                } else {
-                    var ux1 = Math.min(u.x, g.x)
-                    var uy1 = Math.min(u.y, g.y)
-                    var ux2 = Math.max(u.x + u.width, g.x + g.width)
-                    var uy2 = Math.max(u.y + u.height, g.y + g.height)
-                    u = Qt.rect(ux1, uy1, ux2 - ux1, uy2 - uy1)
-                }
-            }
-            if (u) {
-                consider(u)
+            if (tile.absoluteGeometry) {
+                consider(tile.absoluteGeometry)
             }
         }
 
-        // Walk to the tree root from the first tiled window on this screen
-        // and desktop, then collect every leaf's windows.
-        var root = null
         try {
+            var root = null
             var wins = Workspace.stackingOrder
             var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
             for (var i = 0; i < wins.length; i++) {
@@ -230,15 +249,12 @@ PlasmaCore.Dialog {
                 break
             }
             if (root) {
-                // Assumes a single tile tree per desktop (the quick grid).
-                // Custom tilings with several independent roots would only
-                // contribute the tree the first tiled window belongs to.
                 var p = root.parentTile
                 while (p) {
                     root = p
                     p = root.parentTile
                 }
-                addLeaf(root)
+                addTileRects(root)
             }
         } catch (e) {
             // Tile tree not reachable here: keep the default grid.
@@ -261,11 +277,13 @@ PlasmaCore.Dialog {
     }
 
     function showAtTop() {
-        // Clamp so the popup never starts off-screen on narrow screens.
-        x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - popupW) / 2))
-        y = screenArea.y + topGap
-        setWidth(popupW)
-        setHeight(popupH)
+        // Position once on band entry: a static top strip holding the
+        // peeking and expanded selector. The selector's own margin Behavior
+        // (inside Selector.qml) animates the two-stage reveal inside it.
+        x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - stripW) / 2))
+        y = screenArea.y
+        setWidth(stripW)
+        setHeight(stripH)
     }
 
     Component.onCompleted: {
@@ -279,6 +297,15 @@ PlasmaCore.Dialog {
         // would abort Component.onCompleted and break the whole instance.
         if (Workspace.windowClosed) {
             Workspace.windowClosed.connect(onWindowClosed)
+        }
+    }
+
+    Component.onDestruction: {
+        // Never leave our outline on screen after the script goes away
+        // (disable/reload while a card is hovered).
+        if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
         }
     }
 
@@ -317,6 +344,11 @@ PlasmaCore.Dialog {
             if (!window.move) {
                 return
             }
+            // KZones' activation: the dialog maps at grab time — long before
+            // the cursor ever reaches the band — and the selector starts
+            // fully retracted inside it.
+            retracted = true
+            hideTimer.stop()
             refreshScreenArea()
             dragWindow = window
             // Re-read the grid from KWin's tile tree. A snapped window
@@ -324,12 +356,29 @@ PlasmaCore.Dialog {
             // is leaving keeps being reflected.
             splitsFromTileTree()
             dragging = true
+            // KZones' show(): visible at grab, so the first map after login
+            // happens with seconds of slack instead of at the moment of truth.
+            showAtTop()
+            visible = true
+            lastTickPos = Qt.point(-1, -1)
             pollTimer.start()
             onTick()
         })
         window.interactiveMoveResizeFinished.connect(function() {
             onDrop()
         })
+    }
+
+    // KZones' isHovering pattern: cursor inside an item's global rect.
+    function pointInRect(pos, rect) {
+        return pos.x >= rect.x && pos.x <= rect.x + rect.width &&
+            pos.y >= rect.y && pos.y <= rect.y + rect.height
+    }
+
+    // Global rect of the selector (panel + chrome) in its current state.
+    function selectorRect() {
+        var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
+        return Qt.rect(g.x, g.y, zoneSelector.width, zoneSelector.height)
     }
 
     function onTick() {
@@ -341,37 +390,84 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            // Position once on entry; the popup is anchored to the screen, so
-            // it does not need repositioning while the cursor stays in band.
-            if (!visible) {
-                showAtTop()
-                visible = true
+            // Back inside the band: reveal the selector again.
+            retracted = false
+            // Keep the grid live: re-read it whenever the cursor moved so the
+            // diagrams and overlay track the re-tiled layout.
+            if (pos.x !== lastTickPos.x || pos.y !== lastTickPos.y) {
+                lastTickPos = pos
+                splitsFromTileTree()
             }
-            // Only update the layout when the hit test result actually
-            // changes; keeps the overlay binding quiet while hovering.
-            var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
-            if (hit !== highlightedLayout) {
-                highlightedLayout = hit
+            // Two-stage KZones-style reveal: peek sliver in the outer band,
+            // full drop within showDistance of the top. Hovering the selector
+            // keeps it fully shown (the popup never slides out from under
+            // the cursor).
+            var hovering = pointInRect(pos, selectorRect())
+            fullZone = hovering || (pos.y - screenArea.y) < showDistance
+            // Selection is popup-area-only: only the cards highlight; the
+            // panel padding and the rest of the screen stay inert. Hover
+            // checks pause while the margin animation runs (KZones parity).
+            var hit = ""
+            if (fullZone && !zoneSelector.animating) {
+                var g = zoneSelector.panel.mapToGlobal(Qt.point(0, 0))
+                hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
+            }
+            if (hit !== highlightedZone) {
+                highlightedZone = hit
+                if (hit !== "") {
+                    currentLayout = Logic.layoutOf(hit)
+                }
             }
         } else {
-            highlightedLayout = ""
+            // Outside the band: retract the selector. KZones keeps the dialog
+            // up for the whole drag — it hides only at drag end.
+            highlightedZone = ""
+            fullZone = false
+            retracted = true
+        }
+        // KWin's native snap outline (the same renderer native edge-dragging
+        // uses) tracks the highlight and moves with live grid changes. We
+        // only ever hide an outline we showed ourselves — unconditional
+        // hides would erase KWin's own native edge/corner drag previews.
+        var outlineRect = currentZoneRect()
+        if (highlightedZone !== "" && outlineRect.width > 0) {
+            Workspace.showOutline(outlineRect)
+            outlineShown = true
+        } else if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
+    }
+
+    // End the drag. flyOut=true: nothing was dropped on a layout, so the
+    // panel flies away the same way it dropped in, and the dialog hides once
+    // the animation finishes. flyOut=false: hide instantly (successful snap,
+    // or stuck-drag cleanup).
+    function resetDrag(flyOut) {
+        dragging = false
+        pollTimer.stop()
+        dragWindow = null
+        highlightedZone = ""
+        fullZone = false
+        if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
+        if (flyOut) {
+            retracted = true
+            hideTimer.restart()
+        } else {
+            retracted = false
+            hideTimer.stop()
             visible = false
         }
     }
 
-    function resetDrag() {
-        dragging = false
-        pollTimer.stop()
-        dragWindow = null
-        highlightedLayout = ""
-        visible = false
-    }
-
     function onDrop() {
-        var chosen = highlightedLayout
-        resetDrag()
+        var chosen = highlightedZone
+        resetDrag(chosen === "")
         if (chosen !== "") {
-            pendingLayout = chosen
+            pendingZone = chosen
             // Delay so KWin has committed the drop before we snap the window.
             commitTimer.start()
         }
@@ -382,178 +478,54 @@ PlasmaCore.Dialog {
     // get stuck.
     function onWindowClosed(window) {
         if (dragging && window === dragWindow) {
-            resetDrag()
+            resetDrag(false)
         }
     }
 
     function onCommit() {
-        var layout = pendingLayout
-        pendingLayout = ""
+        var zone = pendingZone
+        pendingZone = ""
         // A new drag may have started while the commit was pending. The tile
         // slots act on whichever window KWin is currently handling, so
         // applying now could tile the wrong window; drop the stale intent.
         if (dragging) {
             return
         }
-        var l = Logic.layoutById(layout)
-        if (l && Workspace[l.slot]) {
-            Workspace[l.slot]()
+        var slot = Logic.zoneSlot(zone)
+        if (slot !== "" && Workspace[slot]) {
+            Workspace[slot]()
         }
     }
 
     // Dialog's default property only accepts Items, so all UI and non-Item
     // children (Timers) live inside a plain Item (the KZones pattern).
     Item {
-        anchors.fill: parent
+        // Explicit size (KZones' mainItem pattern) instead of anchors.fill:
+        // the Dialog's window sizing chain stays honest from the first frame.
+        width: popup.width
+        height: popup.height
 
-        // Theme colors follow the active color scheme live. Each consumer owns
-        // a local ColorHelper so Kirigami.Theme resolves in the same context
-        // where the colors are consumed.
-        Rectangle {
-            anchors.fill: parent
-            radius: 12
-            color: colorHelper.backgroundColor
-            border.width: 1
-            border.color: colorHelper.borderColor
+        // KZones-style selector (forked from KZones' Selector.qml): panel
+        // skin, three merged layout cards and the three-state topMargin
+        // (fully shown at the resting offset / peek sliver at the screen
+        // top / retracted) with the margin Behavior providing the drop
+        // animation.
+        Components.Selector {
+            id: zoneSelector
 
-            Components.ColorHelper {
-                id: colorHelper
-            }
-
-            Row {
-                spacing: gap
-                anchors.centerIn: parent
-
-                Repeater {
-                    model: Logic.LAYOUTS
-
-                    delegate: Item {
-                        width: cardW
-                        height: cardH
-
-                        readonly property bool isActive: popup.highlightedLayout === modelData.id
-
-                        Components.ColorHelper {
-                            id: cardHelper
-                        }
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 8
-                            color: cardHelper.cardBgIdle
-                            border.width: isActive ? 2 : 1
-                            border.color: isActive ? cardHelper.cardBorderActive : cardHelper.cardBorderIdle
-                            Behavior on border.color { ColorAnimation { duration: 90 } }
-                        }
-
-                        Item {
-                            id: mini
-                            anchors.fill: parent
-                            anchors.margins: 9
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 3
-                                color: cardHelper.miniScreenBg
-                                border.color: cardHelper.miniScreenBorder
-                                border.width: 1
-                            }
-
-                            Rectangle {
-                                x: mini.width * modelData.fx
-                                y: mini.height * modelData.fy
-                                width: mini.width * modelData.fw
-                                height: mini.height * modelData.fh
-                                radius: 2
-                                color: cardHelper.miniFillIdle
-                            }
-
-                            Rectangle {
-                                width: 1
-                                height: mini.height
-                                anchors.horizontalCenter: mini.horizontalCenter
-                                visible: modelData.fw === 0.5
-                                color: cardHelper.dividerColor
-                            }
-                            Rectangle {
-                                width: mini.width
-                                height: 1
-                                anchors.verticalCenter: mini.verticalCenter
-                                visible: modelData.fh === 0.5
-                                color: cardHelper.dividerColor
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fullscreen, click-through overlay that mirrors the native KWin outline
-        // while a layout card is hovered. Position/size come from the same
-        // MaximizeArea-based math KWin's quickTileGeometry() uses.
-        PlasmaCore.Dialog {
-            id: zoneOverlay
-            // Shown only while the popup is up AND a layout card is hovered.
-            // Declarative binding: reacts only when the highlighted layout
-            // (or popup visibility/drag state) actually changes, so nothing
-            // is churned on the 16ms poll.
-            visible: popup.dragging && popup.visible && popup.highlightedLayout !== ""
-            type: PlasmaCore.Dialog.OnScreenDisplay
-            location: PlasmaCore.Types.Desktop
-            backgroundHints: PlasmaCore.Types.NoBackground
-            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
-            hideOnWindowDeactivate: false
-            outputOnly: true
-            x: popup.screenArea.x
-            y: popup.screenArea.y
-            // Declared full-screen size properties (mirroring kzones'
-            // mainDialog), so the overlay window is born at the full client
-            // area instead of being sized to its first highlight.
-            width: popup.screenArea.width
-            height: popup.screenArea.height
-            // Explicit resize whenever shown, never on the poll.
-            onVisibleChanged: {
-                if (visible) {
-                    setWidth(popup.screenArea.width)
-                    setHeight(popup.screenArea.height)
-                }
-            }
-
-            // Full-size content host so the highlight always has a correctly
-            // sized parent context.
-            Item {
-                id: overlayContent
-                width: zoneOverlay.width
-                height: zoneOverlay.height
-
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (kzones zone pattern).
-                Item {
-                    id: highlightHost
-                    x: popup.highlightGeometry.x - popup.screenArea.x
-                    y: popup.highlightGeometry.y - popup.screenArea.y
-                    width: popup.highlightGeometry.width
-                    height: popup.highlightGeometry.height
-
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 12
-                        color: overlayHelper.overlayFill
-                        border.color: overlayHelper.overlayBorder
-                        border.width: 2
-                    }
-
-                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                }
-
-                Components.ColorHelper {
-                    id: overlayHelper
-                }
-            }
+            shownMargin: popup.topGap
+            peekHeight: popup.peekHeight
+            pad: popup.pad
+            gap: popup.gap
+            cardW: popup.cardW
+            cardH: popup.cardH
+            layouts: Logic.LAYOUTS
+            currentLayout: popup.currentLayout
+            highlightedZone: popup.highlightedZone
+            hSplit: popup.hSplit
+            vSplit: popup.vSplit
+            expanded: popup.fullZone && !popup.retracted
+            peeking: !popup.fullZone && !popup.retracted
         }
 
         Timer {
@@ -567,6 +539,20 @@ PlasmaCore.Dialog {
             id: commitTimer
             interval: 80
             onTriggered: onCommit()
+        }
+
+        // One-shot delay so the fly-out retract animation (150ms margin
+        // Behavior inside Selector.qml) finishes before the dialog hides.
+        Timer {
+            id: hideTimer
+            interval: 170
+            repeat: false
+            onTriggered: {
+                if (!dragging) {
+                    visible = false
+                    retracted = false
+                }
+            }
         }
     }
 }
