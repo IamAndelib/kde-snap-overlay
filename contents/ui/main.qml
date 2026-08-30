@@ -42,18 +42,222 @@ PlasmaCore.Dialog {
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
     property var dragWindow: null
+    // Output the drag happens on; the tile tree is per-output/per-desktop.
+    property var dragScreen: null
 
-    // The screen-space region the highlighted layout maps to.
+    // Current quick-tile grid splits (relative to screenArea), read from
+    // KWin's live tile tree at drag start so the highlight matches the space
+    // the native outline would fill. 0.5/0.5 = the default grid.
+    property real hSplit: 0.5
+    property real vSplit: 0.5
+
+    // The screen-space region the highlighted layout maps to. Uses the
+    // dynamic grid splits instead of the static layout fractions, matching
+    // the geometry KWin's quickTileGeometry()/tileForMode() would report.
+    // hSplit/vSplit are read directly here (not through a JS call) so the
+    // binding re-evaluates when the grid changes.
     readonly property rect highlightGeometry: {
         var l = Logic.layoutById(highlightedLayout)
         if (!l) {
             return Qt.rect(0, 0, 0, 0)
         }
+        var hs = hSplit
+        var vs = vSplit
+        var f
+        switch (highlightedLayout) {
+        case "left":        f = { fx: 0,   fy: 0,  fw: hs,     fh: 1 }; break
+        case "right":       f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: 1 }; break
+        case "top":         f = { fx: 0,   fy: 0,  fw: 1,      fh: vs }; break
+        case "bottom":      f = { fx: 0,   fy: vs, fw: 1,      fh: 1 - vs }; break
+        case "topLeft":     f = { fx: 0,   fy: 0,  fw: hs,     fh: vs }; break
+        case "topRight":    f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: vs }; break
+        case "bottomLeft":  f = { fx: 0,   fy: vs, fw: hs,     fh: 1 - vs }; break
+        case "bottomRight": f = { fx: hs,  fy: vs, fw: 1 - hs, fh: 1 - vs }; break
+        default:            f = { fx: 0,   fy: 0,  fw: 0,      fh: 0 }; break
+        }
         return Qt.rect(
-            screenArea.x + screenArea.width * l.fx,
-            screenArea.y + screenArea.height * l.fy,
-            screenArea.width * l.fw,
-            screenArea.height * l.fh)
+            screenArea.x + screenArea.width * f.fx,
+            screenArea.y + screenArea.height * f.fy,
+            screenArea.width * f.fw,
+            screenArea.height * f.fh)
+    }
+
+    // Read the current quick-tile grid (hSplit/vSplit) straight from KWin's
+    // tile tree, reproducing what QuickRootTile::relayoutToFit() computes:
+    // the split follows the inner edge of the tiled windows. The quick slot
+    // grid itself is not scripting-accessible, so the tree is reached by
+    // scanning the stacking order for a window that reports an owning tile
+    // (window.tile); ascending to the tree root and reading its leaves gives
+    // exactly the partition KWin previews. Only windows KWin placed in a tile
+    // can contribute, so floating windows never skew the grid. Falls back to
+    // the default grid.
+    function splitsFromTileTree() {
+        hSplit = 0.5
+        vSplit = 0.5
+        var leftRights = []
+        var rightLefts = []
+        var topBottoms = []
+        var bottomTops = []
+
+        // A leaf rect contributes split values only if it is clearly
+        // anchored to the screen edges. Frame geometry is used so the
+        // measured edges sit exactly on the tile partition lines. With
+        // margins/gaps in a custom tiling the frame stays inset from the
+        // edges, so such setups fall through to the default grid.
+        function consider(rect) {
+            if (!rect || rect.width < 50 || rect.height < 50) {
+                return
+            }
+            var sa = screenArea
+            var w = sa.width
+            var h = sa.height
+            var x1 = Math.max(rect.x, sa.x)
+            var y1 = Math.max(rect.y, sa.y)
+            var x2 = Math.min(rect.x + rect.width, sa.x + w)
+            var y2 = Math.min(rect.y + rect.height, sa.y + h)
+            if (x2 - x1 < 50 || y2 - y1 < 50) {
+                return
+            }
+            var relL = (x1 - sa.x) / w
+            var relT = (y1 - sa.y) / h
+            var relR = (x2 - sa.x) / w
+            var relB = (y2 - sa.y) / h
+            var hFrac = (x2 - x1) / w
+            var vFrac = (y2 - y1) / h
+
+            var epsH = 0.02
+            var epsV = 0.05
+            var left = relL < epsH
+            var right = relR > 1 - epsH
+            var top = relT < epsV
+            var bottom = relB > 1 - 0.005
+
+            if (vFrac >= 0.8 && hFrac <= 0.95) {
+                // Full-height column.
+                if (left && !right) {
+                    leftRights.push(relR)
+                } else if (right && !left) {
+                    rightLefts.push(relL)
+                }
+            } else if (hFrac >= 0.8 && vFrac <= 0.95) {
+                // Full-width row.
+                if (top && !bottom) {
+                    topBottoms.push(relB)
+                } else if (bottom && !top) {
+                    bottomTops.push(relT)
+                }
+            } else if (hFrac >= 0.2 && vFrac >= 0.2) {
+                // Corner.
+                if (left && top && !right && !bottom) {
+                    leftRights.push(relR)
+                    topBottoms.push(relB)
+                } else if (right && top && !left && !bottom) {
+                    rightLefts.push(relL)
+                    topBottoms.push(relB)
+                } else if (left && bottom && !right && !top) {
+                    leftRights.push(relR)
+                    bottomTops.push(relT)
+                } else if (right && bottom && !left && !top) {
+                    rightLefts.push(relL)
+                    bottomTops.push(relT)
+                }
+            }
+        }
+
+        // Union of the client rects of every window a tile manages. For a
+        // quick leaf that is one window; for a custom tile holding several
+        // stacked windows, the union is the cell they jointly fill.
+        function addLeaf(tile) {
+            if (!tile) {
+                return
+            }
+            var kids = tile.childTiles
+            if (kids && kids.length > 0) {
+                for (var i = 0; i < kids.length; i++) {
+                    addLeaf(kids[i])
+                }
+                return
+            }
+            var wins = tile.windows
+            var u
+            for (var j = 0; j < wins.length; j++) {
+                var g = wins[j].frameGeometry
+                if (!g || g.width < 50 || g.height < 50) {
+                    continue
+                }
+                if (!u) {
+                    u = Qt.rect(g.x, g.y, g.width, g.height)
+                } else {
+                    var ux1 = Math.min(u.x, g.x)
+                    var uy1 = Math.min(u.y, g.y)
+                    var ux2 = Math.max(u.x + u.width, g.x + g.width)
+                    var uy2 = Math.max(u.y + u.height, g.y + g.height)
+                    u = Qt.rect(ux1, uy1, ux2 - ux1, uy2 - uy1)
+                }
+            }
+            if (u) {
+                consider(u)
+            }
+        }
+
+        // Walk to the tree root from the first tiled window on this screen
+        // and desktop, then collect every leaf's windows.
+        var root = null
+        try {
+            var wins = Workspace.stackingOrder
+            var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
+            for (var i = 0; i < wins.length; i++) {
+                var w = wins[i]
+                if (!w || !w.normalWindow || !w.tile) {
+                    continue
+                }
+                if (desktopId !== null && !w.onAllDesktops && w.desktops) {
+                    var onCurrent = false
+                    for (var k = 0; k < w.desktops.length; k++) {
+                        if (w.desktops[k].id === desktopId) {
+                            onCurrent = true
+                            break
+                        }
+                    }
+                    if (!onCurrent) {
+                        continue
+                    }
+                }
+                if (dragScreen && (!w.output || w.output !== dragScreen)) {
+                    continue
+                }
+                root = w.tile
+                break
+            }
+            if (root) {
+                // Assumes a single tile tree per desktop (the quick grid).
+                // Custom tilings with several independent roots would only
+                // contribute the tree the first tiled window belongs to.
+                var p = root.parentTile
+                while (p) {
+                    root = p
+                    p = root.parentTile
+                }
+                addLeaf(root)
+            }
+        } catch (e) {
+            // Tile tree not reachable here: keep the default grid.
+        }
+
+        var hs = 0.5
+        var vs = 0.5
+        if (leftRights.length > 0) {
+            hs = Math.max.apply(null, leftRights)
+        } else if (rightLefts.length > 0) {
+            hs = Math.min.apply(null, rightLefts)
+        }
+        if (topBottoms.length > 0) {
+            vs = Math.max.apply(null, topBottoms)
+        } else if (bottomTops.length > 0) {
+            vs = Math.min.apply(null, bottomTops)
+        }
+        hSplit = Math.min(0.9, Math.max(0.1, hs))
+        vSplit = Math.min(0.9, Math.max(0.1, vs))
     }
 
     function showAtTop() {
@@ -98,6 +302,7 @@ PlasmaCore.Dialog {
         if (area.width > 0 && area.height > 0) {
             screenArea = Qt.rect(area.x, area.y, area.width, area.height)
         }
+        dragScreen = screen
     }
 
     function connectWindow(window) {
@@ -110,6 +315,10 @@ PlasmaCore.Dialog {
             }
             refreshScreenArea()
             dragWindow = window
+            // Re-read the grid from KWin's tile tree. A snapped window
+            // being re-dragged is still in its tile, so the empty space it
+            // is leaving keeps being reflected.
+            splitsFromTileTree()
             dragging = true
             pollTimer.start()
             onTick()
@@ -128,8 +337,12 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            showAtTop()
-            visible = true
+            // Position once on entry; the popup is anchored to the screen, so
+            // it does not need repositioning while the cursor stays in band.
+            if (!visible) {
+                showAtTop()
+                visible = true
+            }
             // Only update the layout when the hit test result actually
             // changes; keeps the overlay binding quiet while hovering.
             var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
@@ -142,13 +355,17 @@ PlasmaCore.Dialog {
         }
     }
 
-    function onDrop() {
+    function resetDrag() {
         dragging = false
         pollTimer.stop()
         dragWindow = null
-        var chosen = highlightedLayout
         highlightedLayout = ""
         visible = false
+    }
+
+    function onDrop() {
+        var chosen = highlightedLayout
+        resetDrag()
         if (chosen !== "") {
             pendingLayout = chosen
             // Delay so KWin has committed the drop before we snap the window.
@@ -161,11 +378,7 @@ PlasmaCore.Dialog {
     // get stuck.
     function onWindowClosed(window) {
         if (dragging && window === dragWindow) {
-            dragging = false
-            pollTimer.stop()
-            dragWindow = null
-            highlightedLayout = ""
-            visible = false
+            resetDrag()
         }
     }
 
@@ -217,15 +430,15 @@ PlasmaCore.Dialog {
                         readonly property bool isActive: popup.highlightedLayout === modelData.id
 
                         Components.ColorHelper {
-                            id: colorHelper
+                            id: cardHelper
                         }
 
                         Rectangle {
                             anchors.fill: parent
                             radius: 8
-                            color: colorHelper.cardBgIdle
+                            color: cardHelper.cardBgIdle
                             border.width: isActive ? 2 : 1
-                            border.color: isActive ? colorHelper.cardBorderActive : colorHelper.cardBorderIdle
+                            border.color: isActive ? cardHelper.cardBorderActive : cardHelper.cardBorderIdle
                             Behavior on border.color { ColorAnimation { duration: 90 } }
                         }
 
@@ -237,8 +450,8 @@ PlasmaCore.Dialog {
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 3
-                                color: colorHelper.miniScreenBg
-                                border.color: colorHelper.miniScreenBorder
+                                color: cardHelper.miniScreenBg
+                                border.color: cardHelper.miniScreenBorder
                                 border.width: 1
                             }
 
@@ -248,7 +461,7 @@ PlasmaCore.Dialog {
                                 width: mini.width * modelData.fw
                                 height: mini.height * modelData.fh
                                 radius: 2
-                                color: colorHelper.miniFillIdle
+                                color: cardHelper.miniFillIdle
                             }
 
                             Rectangle {
@@ -256,14 +469,14 @@ PlasmaCore.Dialog {
                                 height: mini.height
                                 anchors.horizontalCenter: mini.horizontalCenter
                                 visible: modelData.fw === 0.5
-                                color: colorHelper.dividerColor
+                                color: cardHelper.dividerColor
                             }
                             Rectangle {
                                 width: mini.width
                                 height: 1
                                 anchors.verticalCenter: mini.verticalCenter
                                 visible: modelData.fh === 0.5
-                                color: colorHelper.dividerColor
+                                color: cardHelper.dividerColor
                             }
                         }
                     }
