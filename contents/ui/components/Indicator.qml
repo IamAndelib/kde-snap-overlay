@@ -2,7 +2,9 @@
 // as of 0.9.3 (GPL-3.0). Used under the project's license; see NOTICE.
 // Modified: zone rectangles are resolved live from the current KWin tile-grid
 // splits (hs/vs) via Logic.zoneRectFrac instead of static percentages, so the
-// mini diagrams track the real split while KWin re-tiles windows.
+// mini diagrams track the real split while KWin re-tiles windows. Cells are
+// painted with Kirigami theme tokens — KWin's trimmed org.kde.plasma.core
+// module does not export FrameSvgItem to scripts.
 import QtQuick
 
 import "../../code/main.js" as Logic

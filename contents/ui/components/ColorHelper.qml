@@ -32,7 +32,6 @@ Item {
         return Kirigami.Theme.hoverColor;
     }
 
-
     function getBorderColor(color) {
         if (theme === "light")
             return Kirigami.ColorUtils.tintWithAlpha(color, "black", 0.15);
