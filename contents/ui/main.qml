@@ -26,61 +26,35 @@ PlasmaCore.Dialog {
     // Horizontal trigger margin on each side, derived from the current screen width.
     readonly property real edgeGap: screenArea.width * edgeGapRatio
 
-    // ---- Card / popup metrics ----
-    readonly property int cardW: 84
-    readonly property int cardH: 56
-    readonly property int gap: 8
-    readonly property int pad: 12
-    readonly property int popupW: Logic.popupSize(cardW, cardH, gap, pad).width
-    readonly property int popupH: Logic.popupSize(cardW, cardH, gap, pad).height
+    // ---- Card / popup metrics (KZones indicator sizing) ----
+    readonly property int cardW: 130
+    readonly property int cardH: 70
+    readonly property int gap: 10
+    readonly property int pad: 14
+    readonly property int popupW: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).width
+    readonly property int popupH: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).height
 
     // ---- State ----
     property rect screenArea: Qt.rect(0, 0, 1920, 1080)
     property bool dragging: false
-    property string highlightedLayout: ""
-    property string pendingLayout: ""
+    // Hovered zone id (member of one of the three layouts), "" when none.
+    property string highlightedZone: ""
+    // The layout whose full-screen cells the overlay currently shows.
+    property string currentLayout: "columns"
+    property string pendingZone: ""
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
     property var dragWindow: null
     // Output the drag happens on; the tile tree is per-output/per-desktop.
     property var dragScreen: null
+    // Last poll position; the live grid is only re-read when the cursor moves.
+    property var lastTickPos: Qt.point(-1, -1)
 
     // Current quick-tile grid splits (relative to screenArea), read from
-    // KWin's live tile tree at drag start so the highlight matches the space
-    // the native outline would fill. 0.5/0.5 = the default grid.
+    // KWin's live tile tree so the highlight matches the space the native
+    // outline would fill. 0.5/0.5 = the default grid.
     property real hSplit: 0.5
     property real vSplit: 0.5
-
-    // The screen-space region the highlighted layout maps to. Uses the
-    // dynamic grid splits instead of the static layout fractions, matching
-    // the geometry KWin's quickTileGeometry()/tileForMode() would report.
-    // hSplit/vSplit are read directly here (not through a JS call) so the
-    // binding re-evaluates when the grid changes.
-    readonly property rect highlightGeometry: {
-        var l = Logic.layoutById(highlightedLayout)
-        if (!l) {
-            return Qt.rect(0, 0, 0, 0)
-        }
-        var hs = hSplit
-        var vs = vSplit
-        var f
-        switch (highlightedLayout) {
-        case "left":        f = { fx: 0,   fy: 0,  fw: hs,     fh: 1 }; break
-        case "right":       f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: 1 }; break
-        case "top":         f = { fx: 0,   fy: 0,  fw: 1,      fh: vs }; break
-        case "bottom":      f = { fx: 0,   fy: vs, fw: 1,      fh: 1 - vs }; break
-        case "topLeft":     f = { fx: 0,   fy: 0,  fw: hs,     fh: vs }; break
-        case "topRight":    f = { fx: hs,  fy: 0,  fw: 1 - hs, fh: vs }; break
-        case "bottomLeft":  f = { fx: 0,   fy: vs, fw: hs,     fh: 1 - vs }; break
-        case "bottomRight": f = { fx: hs,  fy: vs, fw: 1 - hs, fh: 1 - vs }; break
-        default:            f = { fx: 0,   fy: 0,  fw: 0,      fh: 0 }; break
-        }
-        return Qt.rect(
-            screenArea.x + screenArea.width * f.fx,
-            screenArea.y + screenArea.height * f.fy,
-            screenArea.width * f.fw,
-            screenArea.height * f.fh)
-    }
 
     // Read the current quick-tile grid (hSplit/vSplit) straight from KWin's
     // tile tree, reproducing what QuickRootTile::relayoutToFit() computes:
@@ -261,11 +235,21 @@ PlasmaCore.Dialog {
     }
 
     function showAtTop() {
-        // Clamp so the popup never starts off-screen on narrow screens.
+        // Slide the panel in from just above the band; the y Behavior eases it
+        // down onto its resting spot.
         x = Math.max(screenArea.x, screenArea.x + Math.floor((screenArea.width - popupW) / 2))
-        y = screenArea.y + topGap
         setWidth(popupW)
         setHeight(popupH)
+        var targetY = screenArea.y + topGap
+        y = targetY - 60
+        y = targetY
+    }
+
+    Behavior on y {
+        NumberAnimation {
+            duration: 150
+            easing.type: Easing.OutCubic
+        }
     }
 
     Component.onCompleted: {
@@ -324,6 +308,7 @@ PlasmaCore.Dialog {
             // is leaving keeps being reflected.
             splitsFromTileTree()
             dragging = true
+            lastTickPos = Qt.point(-1, -1)
             pollTimer.start()
             onTick()
         })
@@ -341,20 +326,28 @@ PlasmaCore.Dialog {
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
         if (inBand) {
-            // Position once on entry; the popup is anchored to the screen, so
-            // it does not need repositioning while the cursor stays in band.
+            // Keep the grid live: re-read it whenever the cursor moved so the
+            // diagrams and overlay track the re-tiled layout. Equal splits are
+            // no-ops, so this stays quiet while KWin does not re-tile.
+            if (pos.x !== lastTickPos.x || pos.y !== lastTickPos.y) {
+                lastTickPos = pos
+                splitsFromTileTree()
+            }
             if (!visible) {
                 showAtTop()
                 visible = true
             }
-            // Only update the layout when the hit test result actually
-            // changes; keeps the overlay binding quiet while hovering.
-            var hit = Logic.hitTest(pos.x, pos.y, x, y, cardW, cardH, gap, pad)
-            if (hit !== highlightedLayout) {
-                highlightedLayout = hit
+            // Zones in the popup cards take priority; otherwise fall back to
+            // the full-screen zones of the current layout (KZones behavior).
+            var hit = Logic.hitTestZones(pos.x, pos.y, x, y, cardW, cardH, gap, pad, hSplit, vSplit)
+            if (hit !== "") {
+                highlightedZone = hit
+                currentLayout = Logic.layoutOf(hit)
+            } else {
+                highlightedZone = Logic.zoneAtPosition(pos.x, pos.y, currentLayout, screenArea, hSplit, vSplit)
             }
         } else {
-            highlightedLayout = ""
+            highlightedZone = ""
             visible = false
         }
     }
@@ -363,15 +356,15 @@ PlasmaCore.Dialog {
         dragging = false
         pollTimer.stop()
         dragWindow = null
-        highlightedLayout = ""
+        highlightedZone = ""
         visible = false
     }
 
     function onDrop() {
-        var chosen = highlightedLayout
+        var chosen = highlightedZone
         resetDrag()
         if (chosen !== "") {
-            pendingLayout = chosen
+            pendingZone = chosen
             // Delay so KWin has committed the drop before we snap the window.
             commitTimer.start()
         }
@@ -387,17 +380,17 @@ PlasmaCore.Dialog {
     }
 
     function onCommit() {
-        var layout = pendingLayout
-        pendingLayout = ""
+        var zone = pendingZone
+        pendingZone = ""
         // A new drag may have started while the commit was pending. The tile
         // slots act on whichever window KWin is currently handling, so
         // applying now could tile the wrong window; drop the stale intent.
         if (dragging) {
             return
         }
-        var l = Logic.layoutById(layout)
-        if (l && Workspace[l.slot]) {
-            Workspace[l.slot]()
+        var slot = Logic.zoneSlot(zone)
+        if (slot !== "" && Workspace[slot]) {
+            Workspace[slot]()
         }
     }
 
@@ -406,19 +399,15 @@ PlasmaCore.Dialog {
     Item {
         anchors.fill: parent
 
-        // Theme colors follow the active color scheme live. Each consumer owns
-        // a local ColorHelper so Kirigami.Theme resolves in the same context
-        // where the colors are consumed.
+        // Panel: KZones selector styling (rounded backgroundColor card, 1px
+        // border, drop shadow) holding one Indicator per merged layout.
         Rectangle {
+            id: panelBg
             anchors.fill: parent
-            radius: 12
+            radius: 10
             color: colorHelper.backgroundColor
             border.width: 1
-            border.color: colorHelper.borderColor
-
-            Components.ColorHelper {
-                id: colorHelper
-            }
+            border.color: colorHelper.getBorderColor(color)
 
             Row {
                 spacing: gap
@@ -427,77 +416,33 @@ PlasmaCore.Dialog {
                 Repeater {
                     model: Logic.LAYOUTS
 
-                    delegate: Item {
+                    delegate: Components.Indicator {
+                        zones: modelData.zones
+                        activeZone: Logic.zoneIndexInLayout(modelData.id, popup.highlightedZone)
+                        hs: popup.hSplit
+                        vs: popup.vSplit
                         width: cardW
                         height: cardH
-
-                        readonly property bool isActive: popup.highlightedLayout === modelData.id
-
-                        Components.ColorHelper {
-                            id: cardHelper
-                        }
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 8
-                            color: cardHelper.cardBgIdle
-                            border.width: isActive ? 2 : 1
-                            border.color: isActive ? cardHelper.cardBorderActive : cardHelper.cardBorderIdle
-                            Behavior on border.color { ColorAnimation { duration: 90 } }
-                        }
-
-                        Item {
-                            id: mini
-                            anchors.fill: parent
-                            anchors.margins: 9
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 3
-                                color: cardHelper.miniScreenBg
-                                border.color: cardHelper.miniScreenBorder
-                                border.width: 1
-                            }
-
-                            Rectangle {
-                                x: mini.width * modelData.fx
-                                y: mini.height * modelData.fy
-                                width: mini.width * modelData.fw
-                                height: mini.height * modelData.fh
-                                radius: 2
-                                color: cardHelper.miniFillIdle
-                            }
-
-                            Rectangle {
-                                width: 1
-                                height: mini.height
-                                anchors.horizontalCenter: mini.horizontalCenter
-                                visible: modelData.fw === 0.5
-                                color: cardHelper.dividerColor
-                            }
-                            Rectangle {
-                                width: mini.width
-                                height: 1
-                                anchors.verticalCenter: mini.verticalCenter
-                                visible: modelData.fh === 0.5
-                                color: cardHelper.dividerColor
-                            }
-                        }
+                        hovering: modelData.id === popup.currentLayout
                     }
                 }
             }
         }
 
-        // Fullscreen, click-through overlay that mirrors the native KWin outline
-        // while a layout card is hovered. Position/size come from the same
-        // MaximizeArea-based math KWin's quickTileGeometry() uses.
+        // KZones-style drop shadow under the panel.
+        Components.Shadow {
+            target: panelBg
+        }
+
+        Components.ColorHelper {
+            id: colorHelper
+        }
+
+        // Fullscreen, click-through overlay showing the current layout's zones
+        // as KZones-style cells; the highlighted zone snaps on drop.
         PlasmaCore.Dialog {
             id: zoneOverlay
-            // Shown only while the popup is up AND a layout card is hovered.
-            // Declarative binding: reacts only when the highlighted layout
-            // (or popup visibility/drag state) actually changes, so nothing
-            // is churned on the 16ms poll.
-            visible: popup.dragging && popup.visible && popup.highlightedLayout !== ""
+            visible: popup.dragging && popup.visible && popup.highlightedZone !== ""
             type: PlasmaCore.Dialog.OnScreenDisplay
             location: PlasmaCore.Types.Desktop
             backgroundHints: PlasmaCore.Types.NoBackground
@@ -519,35 +464,45 @@ PlasmaCore.Dialog {
                 }
             }
 
-            // Full-size content host so the highlight always has a correctly
-            // sized parent context.
             Item {
-                id: overlayContent
-                width: zoneOverlay.width
-                height: zoneOverlay.height
+                anchors.fill: parent
 
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (kzones zone pattern).
-                Item {
-                    id: highlightHost
-                    x: popup.highlightGeometry.x - popup.screenArea.x
-                    y: popup.highlightGeometry.y - popup.screenArea.y
-                    width: popup.highlightGeometry.width
-                    height: popup.highlightGeometry.height
+                Repeater {
+                    model: Logic.zonesForLayout(popup.currentLayout)
 
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 12
-                        color: overlayHelper.overlayFill
-                        border.color: overlayHelper.overlayBorder
-                        border.width: 2
+                    delegate: Item {
+                        property string zoneId: modelData.id
+                        property bool active: popup.highlightedZone === zoneId
+                        property var frac: Logic.zoneRectFrac(zoneId, popup.hSplit, popup.vSplit)
+
+                        x: frac.fx * parent.width
+                        y: frac.fy * parent.height
+                        width: frac.fw * parent.width
+                        height: frac.fh * parent.height
+
+                        // Delineation for every cell of the current layout.
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 8
+                            color: overlayHelper.accentColor
+                            opacity: active ? 0.12 : 0.04
+                            Behavior on opacity {
+                                NumberAnimation { duration: 90 }
+                            }
+                        }
+
+                        // Highlight border on the active cell (KZones zoneBorder).
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 8
+                            color: "transparent"
+                            border.width: active ? 3 : 1
+                            border.color: active ? overlayHelper.accentColor : Qt.rgba(overlayHelper.accentColor.r, overlayHelper.accentColor.g, overlayHelper.accentColor.b, 0.25)
+                            Behavior on border.color {
+                                ColorAnimation { duration: 90 }
+                            }
+                        }
                     }
-
-                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
                 }
 
                 Components.ColorHelper {

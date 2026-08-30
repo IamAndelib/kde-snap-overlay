@@ -1,0 +1,20 @@
+# Attribution Notice
+
+This project incorporates material from
+[KZones](https://github.com/gerritdevriese/kzones) by Gerrit de Vries and
+contributors, which is licensed under the GNU General Public License v3.0 or
+later (GPL-3.0-or-later).
+
+The following files are derived from KZones (as of 0.9.3) and are therefore
+licensed under GPL-3.0-or-later as part of this combined work:
+
+- `contents/ui/components/ColorHelper.qml`
+- `contents/ui/components/Shadow.qml`
+- `contents/ui/components/Indicator.qml`
+
+`contents/ui/main.qml` heavily adapts KZones' `Selector.qml`, `Zones.qml` and
+`main.qml` (panel styling, zone geometry highlighting and the fullscreen
+quadrant overlay concept).
+
+In accordance with GPL-3.0, this project is distributed under the GPL-3.0
+license as a combined work. See `LICENSE`.

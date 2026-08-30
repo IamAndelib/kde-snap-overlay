@@ -1,3 +1,6 @@
+// Design tokens ported from KZones (https://github.com/gerritdevriese/kzones),
+// ColorHelper.qml as of 0.9.3 (GPL-3.0). Used under the project's license;
+// see NOTICE at the repo root.
 import QtQuick
 import org.kde.kirigami as Kirigami
 
@@ -8,27 +11,48 @@ Item {
         const brightness = Kirigami.ColorUtils.brightnessForColor(Kirigami.Theme.backgroundColor);
         return brightness === Kirigami.ColorUtils.Light ? "light" : "dark";
     }
-    function getBorderColor(c) {
-        if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(c, "black", 0.15)
-        return Kirigami.ColorUtils.tintWithAlpha(c, "white", 0.10)
-    }
-    function withAlpha(c, a) {
-        return Qt.rgba(c.r, c.g, c.b, a)
-    }
+
     property var backgroundColor: {
-        if (theme === "light") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.45)
-        if (theme === "dark") return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.30)
+        if (theme === "light")
+            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.45);
+
+        if (theme === "dark")
+            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.30);
     }
-    property var borderColor: getBorderColor(backgroundColor)
-    property var fgColor: Kirigami.Theme.textColor
-    property var highColor: Kirigami.Theme.highlightColor
-    property var cardBgIdle: withAlpha(fgColor, 0.08)
-    property var cardBorderIdle: withAlpha(fgColor, 0.18)
-    property var cardBorderActive: withAlpha(highColor, 0.95)
-    property var miniScreenBg: backgroundColor
-    property var miniScreenBorder: withAlpha(fgColor, 0.35)
-    property var miniFillIdle: withAlpha(highColor, 0.5)
-    property var dividerColor: withAlpha(fgColor, 0.3)
-    property var overlayFill: withAlpha(highColor, 0.32)
-    property var overlayBorder: withAlpha(highColor, 0.85)
+
+    property var buttonColor: {
+        if (theme === "light")
+            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.15);
+
+        if (theme === "dark")
+            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.10);
+    }
+
+    property var accentColor: {
+        return Kirigami.Theme.hoverColor;
+    }
+
+    property var textColor: {
+        return Kirigami.Theme.textColor;
+    }
+
+    function getShadowColor() {
+        if (theme === "light")
+            return Qt.rgba(0, 0, 0, 0.2);
+
+        if (theme === "dark")
+            return Qt.rgba(0, 0, 0, 0.4);
+    }
+
+    function getBorderColor(color) {
+        if (theme === "light")
+            return Kirigami.ColorUtils.tintWithAlpha(color, "black", 0.15);
+
+        if (theme === "dark")
+            return Kirigami.ColorUtils.tintWithAlpha(color, "white", 0.1);
+    }
+
+    function tintWithAlpha(color, tint, alpha) {
+        return Kirigami.ColorUtils.tintWithAlpha(color, tint, alpha);
+    }
 }

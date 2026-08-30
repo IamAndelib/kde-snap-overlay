@@ -55,11 +55,18 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 
 cp "$METADATA" "$STAGE_DIR/"
 cp -r "$SCRIPT_DIR/contents" "$STAGE_DIR/"
+# GPL-3.0: ship the license and the KZones attribution notice inside the
+# installable archive, not just in the repo.
+for F in LICENSE NOTICE; do
+    if [ -f "$SCRIPT_DIR/$F" ]; then
+        cp "$SCRIPT_DIR/$F" "$STAGE_DIR/"
+    fi
+done
 
 echo ">>> Building $OUTPUT ..."
 (
     cd "$STAGE_DIR"
-    zip -X -9 -r -q "$OUTPUT" metadata.json contents
+    zip -X -9 -r -q "$OUTPUT" metadata.json contents LICENSE NOTICE
 )
 
 echo ">>> Done."

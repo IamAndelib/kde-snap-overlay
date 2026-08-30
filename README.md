@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.2.1.kwinscript` from the repo root or the [v1.2.1 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2.1) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.3.0.kwinscript` from the repo root or the [v1.3.0 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.3.0) (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -119,4 +119,9 @@ The popup follows the active Plasma color scheme, and updates **live** — no re
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).
+
+Part of this project (the KZones-inspired components and popup/overlay design)
+is derived from [KZones](https://github.com/gerritdevriese/kzones)
+(GPL-3.0-or-later, copyright Gerrit de Vries and contributors); see
+[NOTICE](NOTICE).
