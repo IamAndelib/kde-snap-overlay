@@ -197,8 +197,14 @@ PlasmaCore.Dialog {
                         continue
                     }
                 }
-                if (dragScreen && (!w.output || w.output !== dragScreen)) {
-                    continue
+                if (dragScreen && w.output) {
+                    // KWin exposes Client.output as a screen name string; a
+                    // plain `!==`-compared Screen object would skip every
+                    // window, so resolve both sides to the screen name.
+                    var outName = (typeof w.output === "string") ? w.output : (w.output.name ? w.output.name : "")
+                    if (outName !== "" && outName !== dragScreen.name) {
+                        continue
+                    }
                 }
                 root = w.tile
                 break

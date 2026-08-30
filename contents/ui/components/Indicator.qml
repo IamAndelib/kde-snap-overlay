@@ -5,7 +5,7 @@
 // mini diagrams track the real split while KWin re-tiles windows.
 import QtQuick
 
-import "../code/main.js" as Logic
+import "../../code/main.js" as Logic
 import "../components" as Components
 
 Rectangle {
