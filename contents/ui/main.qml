@@ -515,8 +515,6 @@ PlasmaCore.Dialog {
         Components.Selector {
             id: zoneSelector
 
-            shownMargin: popup.topGap
-            peekHeight: popup.peekHeight
             pad: popup.pad
             gap: popup.gap
             cardW: popup.cardW
@@ -526,8 +524,6 @@ PlasmaCore.Dialog {
             highlightedZone: popup.highlightedZone
             hSplit: popup.hSplit
             vSplit: popup.vSplit
-            expanded: popup.fullZone && !popup.retracted
-            peeking: !popup.fullZone && !popup.retracted
         }
 
         Timer {
