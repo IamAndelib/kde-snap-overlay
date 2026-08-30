@@ -2,8 +2,11 @@
 // as of 0.9.3 (GPL-3.0). Used under the project's license; see NOTICE.
 // Modified: zone rectangles are resolved live from the current KWin tile-grid
 // splits (hs/vs) via Logic.zoneRectFrac instead of static percentages, so the
-// mini diagrams track the real split while KWin re-tiles windows.
+// mini diagrams track the real split while KWin re-tiles windows; idle cells
+// use the Plasma theme's widget background (native translucency per theme)
+// and the active cell is highlighted with the system accent color.
 import QtQuick
+import org.kde.plasma.core as PlasmaCore
 
 import "../../code/main.js" as Logic
 
@@ -36,22 +39,27 @@ Rectangle {
             width: frac.fw * indicator.width
             height: frac.fh * indicator.height
 
-            Rectangle {
-                property int padding: 2
-
+            // Idle + active cells share the Plasma theme's widget background:
+            // native translucency and border, consistent with shell widgets.
+            PlasmaCore.FrameSvgItem {
                 anchors.fill: parent
-                anchors.margins: padding
-                color: activeZone === index
-                    ? colorHelper.accentColor
-                    : colorHelper.buttonColor
-                border.color: colorHelper.getBorderColor(color)
-                border.width: 1
+                anchors.margins: 2
+                imagePath: "widgets/background"
+            }
+
+            // Active cell: the system accent highlight layered on top of the
+            // themed frame.
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 2
+                color: colorHelper.accentColor
+                opacity: activeZone === index ? 0.35 : 0
+                border.color: colorHelper.accentColor
+                border.width: activeZone === index ? 2 : 0
                 radius: 5
 
-                Behavior on color {
-                    ColorAnimation {
-                        duration: 150
-                    }
+                Behavior on opacity {
+                    NumberAnimation { duration: 150 }
                 }
             }
         }

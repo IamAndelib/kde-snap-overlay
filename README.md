@@ -108,7 +108,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 ## Color scheme
 
-The popup follows the active Plasma color scheme, and updates **live** — no relog needed. Colors come from `Kirigami.Theme` (per `contents/ui/components/ColorHelper.qml`), which is wired the same way as KZones: a `ColorHelper` instance owned by each consumer, with the script root being the `PlasmaCore.Dialog` itself. There are no hardcoded colors in the UI.
+The popup is natively Plasma-integrated: the panel is a Plasma dialog (theme translucency + blur), the layout cards use the Plasma theme's widget background frames, and the active-zone highlight uses the system accent color via `Kirigami.Theme` (per `contents/ui/components/ColorHelper.qml`). There are no hardcoded colors in the UI.
 
 ## Troubleshooting
 
