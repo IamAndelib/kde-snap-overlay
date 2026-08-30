@@ -65,12 +65,14 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | Key                  | Default | Range | Meaning                                              |
 | -------------------- | ------- | ----- | ---------------------------------------------------- |
 | `activationDistance` | 150     | 100–400 | Band below the top edge (px) in which the popup appears |
-| `topGap`             | 60      | 20–(activationDistance−68) | Gap between the top edge and the popup, keeping the native maximize zone clear |
+| `topGap`             | 0       | 0–(activationDistance−84) | Resting offset between the top edge and the popup panel (0 = KZones-style, panel glued to the top edge) |
+| `showDistance`       | 75      | topGap+10–activationDistance−10 | Cursor distance from the top edge below which the popup fully drops (beyond it, only the peek sliver shows). Default matches KZones' trigger distance |
+| `peekHeight`         | 30      | 10–popupHeight−20 | Height of the popup sliver that peaks over the top edge while peeking |
 | `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 
 ```sh
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationDistance 150
-kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 60
+kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 0
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0.25
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
@@ -119,4 +121,9 @@ The popup follows the active Plasma color scheme, and updates **live** — no re
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).
+
+Part of this project (the KZones-inspired components and popup/overlay design)
+is derived from [KZones](https://github.com/gerritdevriese/kzones)
+(GPL-3.0-or-later, copyright Gerrit de Vries and contributors); see
+[NOTICE](NOTICE).
