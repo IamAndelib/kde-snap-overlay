@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.2.kwinscript` from the repo root or the [v1.2 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.2.1.kwinscript` from the repo root or the [v1.2.1 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2.1) (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
