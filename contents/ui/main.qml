@@ -323,15 +323,25 @@ PlasmaCore.Dialog {
         })
     }
 
+    // Cursor inside the drag-trigger band (top edge strip, horizontally
+    // inset by edgeGap on each side).
+    function cursorInBand(pos) {
+        return pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
+            pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
+    }
+
+    // Cursor inside the strip above the popup, reserved for KWin's native
+    // drag-to-maximize. Same topGap knob that positions the popup below it.
+    function cursorInMaximizeStrip(pos) {
+        return pos.y < screenArea.y + topGap
+    }
+
     function onTick() {
         if (!dragging) {
             return
         }
         var pos = Workspace.cursorPos
-        var inBand =
-            pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
-            pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
-        if (inBand) {
+        if (cursorInBand(pos)) {
             // Keep the grid live: re-read it whenever the cursor moved so the
             // diagrams and overlay track the re-tiled layout. Equal splits are
             // no-ops, so this stays quiet while KWin does not re-tile.
@@ -342,6 +352,16 @@ PlasmaCore.Dialog {
             if (!visible) {
                 showAtTop()
                 visible = true
+            }
+            // The strip above the popup stays reserved for KWin's native
+            // drag-to-maximize (pre-overhaul behavior), and hovering the
+            // panel's padding is neither a card nor a screen cell. Both stay
+            // unhighlighted and inert on drop; zones only react over the
+            // cards and the layout cells.
+            if (cursorInMaximizeStrip(pos) ||
+                (pos.x >= x && pos.x <= x + popupW && pos.y >= y && pos.y <= y + popupH)) {
+                highlightedZone = ""
+                return
             }
             // Zones in the popup cards take priority; otherwise fall back to
             // the full-screen zones of the current layout (KZones behavior).
@@ -367,7 +387,12 @@ PlasmaCore.Dialog {
     }
 
     function onDrop() {
-        var chosen = highlightedZone
+        // Re-verify the cursor at drop time: the highlight comes from the
+        // last poll tick (16ms ago), and a fast flick into the maximize
+        // strip — or out of the band — must not snap. This keeps KWin's
+        // native drag-to-maximize intact.
+        var pos = Workspace.cursorPos
+        var chosen = (cursorInBand(pos) && !cursorInMaximizeStrip(pos)) ? highlightedZone : ""
         resetDrag()
         if (chosen !== "") {
             pendingZone = chosen
