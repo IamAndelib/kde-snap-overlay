@@ -1,9 +1,9 @@
 // Forked from KZones (https://github.com/gerritdevriese/kzones), Selector.qml
 // as of 0.9.3 (GPL-3.0). Used under the project's license; see NOTICE.
-// Adaptations: KZones' hardcoded margins (0 / -height + 30 / -height) become
-// shownMargin / -(height - peekHeight) / -height; the cards are this project's
-// dynamic-grid Indicators driven by the live KWin tile splits; expansion is
-// driven by the owner's distance band (showDistance) plus selector hover.
+// Adaptations: the panel background, border, shadow and margin state machine
+// are handled by the owning PlasmaCore.Dialog (native theme background with
+// system translucency and blur); this component is the card row with this
+// project's dynamic-grid Indicators driven by the live KWin tile splits.
 import QtQuick
 
 import "../../code/main.js" as Logic
@@ -11,15 +11,6 @@ import "../../code/main.js" as Logic
 Item {
     id: selector
 
-    // Expansion state machine (KZones): fully shown, peeking, or retracted.
-    property bool expanded: false
-    property bool peeking: false
-    // True while the margin animation runs; hover checks pause during it.
-    property bool animating: false
-    // Margin between the strip top and the selector when fully shown.
-    property int shownMargin: 0
-    // Visible sliver height while peeking.
-    property int peekHeight: 30
     // Panel metrics (this project's card layout).
     property int pad: 14
     property int gap: 10
@@ -30,69 +21,40 @@ Item {
     property string highlightedZone: ""
     property real hSplit: 0.5
     property real vSplit: 0.5
+    // Extra asymmetric insets compensating the theme frame's shadow borders,
+    // so the cards stay optically centered in the dialog window.
+    property real extraTop: 0
+    property real extraLeft: 0
 
-    property alias panel: background
+    // Implicit size drives the owning Dialog's auto-sizing (the standard
+    // plasmashell pattern), so the window is born at the panel's size.
+    implicitWidth: row.implicitWidth + 2 * selector.pad + selector.extraLeft
+    implicitHeight: row.implicitHeight + 2 * selector.pad + selector.extraTop
 
-    anchors.horizontalCenter: parent.horizontalCenter
-    anchors.top: parent.top
-    anchors.topMargin: expanded ? shownMargin
-                        : (peeking ? -(height - peekHeight) : -height)
+    Row {
+        id: row
 
-    Behavior on anchors.topMargin {
-        NumberAnimation {
-            duration: 150
-            onRunningChanged: {
-                selector.animating = running
+        spacing: selector.gap
+        anchors.fill: parent
+        // Per-side margins: the extra insets go on top/left to cancel the
+        // theme frame's heavier bottom/right shadow borders.
+        anchors.topMargin: selector.pad + selector.extraTop
+        anchors.leftMargin: selector.pad + selector.extraLeft
+        anchors.rightMargin: selector.pad
+        anchors.bottomMargin: selector.pad
+
+        Repeater {
+            model: selector.layouts
+
+            Indicator {
+                zones: modelData.zones
+                activeZone: Logic.zoneIndexInLayout(modelData.id, selector.highlightedZone)
+                hs: selector.hSplit
+                vs: selector.vSplit
+                width: selector.cardW
+                height: selector.cardH
+                hovering: modelData.id === selector.currentLayout
             }
         }
-    }
-
-    width: background.width + 30
-    height: background.height + 40
-
-    Rectangle {
-        id: background
-
-        width: row.implicitWidth + 2 * selector.pad
-        height: row.implicitHeight + 2 * selector.pad
-        anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottomMargin: 15
-        radius: 10
-        color: colorHelper.backgroundColor
-        border.color: colorHelper.getBorderColor(color)
-        border.width: 1
-
-        Row {
-            id: row
-
-            spacing: selector.gap
-            anchors.fill: parent
-            anchors.margins: selector.pad
-
-            Repeater {
-                id: repeater
-
-                model: selector.layouts
-
-                Indicator {
-                    zones: modelData.zones
-                    activeZone: Logic.zoneIndexInLayout(modelData.id, selector.highlightedZone)
-                    hs: selector.hSplit
-                    vs: selector.vSplit
-                    width: selector.cardW
-                    height: selector.cardH
-                    hovering: modelData.id === selector.currentLayout
-                }
-            }
-        }
-    }
-
-    Shadow {
-        target: background
-    }
-
-    ColorHelper {
-        id: colorHelper
     }
 }

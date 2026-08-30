@@ -32,13 +32,6 @@ Item {
         return Kirigami.Theme.hoverColor;
     }
 
-    function getShadowColor() {
-        if (theme === "light")
-            return Qt.rgba(0, 0, 0, 0.2);
-
-        if (theme === "dark")
-            return Qt.rgba(0, 0, 0, 0.4);
-    }
 
     function getBorderColor(color) {
         if (theme === "light")
