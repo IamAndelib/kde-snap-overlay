@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.2.1.kwinscript` from the repo root or the [v1.2.1 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2.1) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-2.0.0.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -97,11 +97,12 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 ## How it works
 
-- Written as a declarative KWin script (`X-Plasma-API: declarativescript`).
-- Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window.
-- While dragging, a 16 ms poll of `Workspace.cursorPos` shows the popup (a `PlasmaCore.Dialog`, click-through via `outputOnly`) whenever the cursor is in the top band.
-- On release, the highlighted layout's `slotWindowQuickTile*` is called. A short delay lets KWin commit the drop first.
-- The zone overlay highlight is **dynamic**: before the popup shows, the script reads KWin's live tile tree (through a tiled window's `tile` property) and derives the current grid splits, so the highlight always matches the exact empty space the snap would fill — e.g. snapping a window at 30% makes the opposite preview show the remaining 70%.
+- Written as a declarative KWin script (`X-Plasma-API: declarativescript`), with the popup skins and two-stage reveal forked from [KZones](NOTICE).
+- Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window; the popup dialog maps at grab time (KZones' activation), so the reveal is margin animation inside an already-mapped window.
+- While dragging, a 16 ms poll of `Workspace.cursorPos` drives the two-stage reveal (peek sliver → full drop) based on cursor distance and selector hover; hovering the panel keeps it fully shown, and layout selection happens only over the popup's cards.
+- The snap preview is **KWin's native outline**: hovering a card drives `Workspace.showOutline()`/`hideOutline()` — the same renderer native edge-dragging uses.
+- The preview geometry is **exact**: `Window.quickTileGeometry()` (the call native snapping itself makes, probed at runtime) with an exact fallback that reads the live tile tree via `Workspace.rootTile()` and `Tile.absoluteGeometry` — layered windows cannot skew the ratios.
+- On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme

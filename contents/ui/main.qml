@@ -20,7 +20,7 @@ PlasmaCore.Dialog {
     height: stripH
 
     // ---- Configuration ----
-    readonly property int activationDistance: Math.max(KWin.readConfig("activationDistance", 150), 100)
+    readonly property int activationDistance: Math.min(Math.max(KWin.readConfig("activationDistance", 150), 100), 400)
     // topGap is the popup's resting offset below the top edge (0 = KZones
     // style, panel glued to the top). It is clamped so the whole card row
     // (pad + cardH below the popup top) always lands inside the band.
@@ -86,11 +86,13 @@ PlasmaCore.Dialog {
     property real hSplit: 0.5
     property real vSplit: 0.5
 
-    // The screen-space region the highlighted zone maps to. Resolution
+    // The screen-space region the highlighted zone maps to, evaluated fresh
+    // on every call — a cached binding would go stale between highlight
+    // changes, since cursorPos is not a notifiable dependency. Resolution
     // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
     // native snapping feeds its outline (probed, not exposed on every
     // build); (2) the live grid splits measured from the real tile tree.
-    readonly property rect highlightGeometry: {
+    function currentZoneRect() {
         if (dragWindow && highlightedZone !== "") {
             try {
                 if (dragWindow.quickTileGeometry) {
@@ -133,10 +135,10 @@ PlasmaCore.Dialog {
         var bottomTops = []
 
         // A leaf rect contributes split values only if it is clearly
-        // anchored to the screen edges. Frame geometry is used so the
-        // measured edges sit exactly on the tile partition lines. With
-        // margins/gaps in a custom tiling the frame stays inset from the
-        // edges, so such setups fall through to the default grid.
+        // anchored to the screen edges. Tile.absoluteGeometry is used so the
+        // measured edges sit exactly on the tile partition lines — layered
+        // windows cannot skew them. Custom tilings whose cells stay inset
+        // from the edges fall through to the default grid.
         function consider(rect) {
             if (!rect || rect.width < 50 || rect.height < 50) {
                 return
@@ -298,6 +300,15 @@ PlasmaCore.Dialog {
         }
     }
 
+    Component.onDestruction: {
+        // Never leave our outline on screen after the script goes away
+        // (disable/reload while a card is hovered).
+        if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
+    }
+
     // Screen under the given position, falling back to the first screen.
     function screenForCursor(pos) {
         var screens = Workspace.screens
@@ -418,8 +429,9 @@ PlasmaCore.Dialog {
         // uses) tracks the highlight and moves with live grid changes. We
         // only ever hide an outline we showed ourselves — unconditional
         // hides would erase KWin's own native edge/corner drag previews.
-        if (highlightedZone !== "" && highlightGeometry.width > 0) {
-            Workspace.showOutline(highlightGeometry)
+        var outlineRect = currentZoneRect()
+        if (highlightedZone !== "" && outlineRect.width > 0) {
+            Workspace.showOutline(outlineRect)
             outlineShown = true
         } else if (outlineShown) {
             Workspace.hideOutline()

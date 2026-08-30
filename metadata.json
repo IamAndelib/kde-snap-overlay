@@ -3,7 +3,7 @@
     "KPlugin": {
         "Id": "kde-snap-overlay",
         "Name": "KDE Snap Overlay",
-        "Description": "Shows Plasma's built-in tiling layouts in a popup when a window is dragged to the top edge. Uses KWin's native tiling.",
+        "Description": "A KZones-style snap popup for Plasma 6: hover the layout cards to preview zones with KWin's native snap outline and drop to quick-tile natively.",
         "Icon": "preferences-system-windows",
         "License": "GPL-3.0-or-later",
         "Authors": [
@@ -12,7 +12,7 @@
                 "Email": "andelibtarefsrizon@gmail.com"
             }
         ],
-        "Version": "1.7.1"
+        "Version": "2.0.0"
     },
     "X-Plasma-API": "declarativescript",
     "X-Plasma-MainScript": "ui/main.qml"

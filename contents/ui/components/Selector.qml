@@ -3,8 +3,7 @@
 // Adaptations: KZones' hardcoded margins (0 / -height + 30 / -height) become
 // shownMargin / -(height - peekHeight) / -height; the cards are this project's
 // dynamic-grid Indicators driven by the live KWin tile splits; expansion is
-// driven by the owner's distance band (showDistance) instead of KZones'
-// sliver-hover check, so the reserved maximize strip stays clear.
+// driven by the owner's distance band (showDistance) plus selector hover.
 import QtQuick
 
 import "../../code/main.js" as Logic

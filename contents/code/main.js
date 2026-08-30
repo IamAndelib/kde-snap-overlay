@@ -76,16 +76,6 @@ function layoutOf(zoneId) {
     return "";
 }
 
-// Zones of a layout as plain zone descriptors (no functions), for Repeater models.
-function zonesForLayout(layoutId) {
-    for (var i = 0; i < LAYOUTS.length; i++) {
-        if (LAYOUTS[i].id === layoutId) {
-            return LAYOUTS[i].zones;
-        }
-    }
-    return [];
-}
-
 // Index of a zone within its layout, or -1 if it is not in that layout.
 function zoneIndexInLayout(layoutId, zoneId) {
     for (var i = 0; i < LAYOUTS.length; i++) {
