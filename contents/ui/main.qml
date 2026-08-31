@@ -44,6 +44,11 @@ PlasmaCore.Dialog {
     property var dragWindow: null
     // Output the drag happens on; the tile tree is per-output/per-desktop.
     property var dragScreen: null
+    // Whether the native outline currently on screen is OURS (shown via
+    // showOutline for a hovered card). Only ever hide an outline we own —
+    // unconditional hides would erase KWin's own native edge/corner
+    // drag previews.
+    property bool outlineShown: false
 
     // Current quick-tile grid splits (relative to screenArea), read from
     // KWin's live tile tree at drag start so the highlight matches the space
@@ -51,12 +56,26 @@ PlasmaCore.Dialog {
     property real hSplit: 0.5
     property real vSplit: 0.5
 
-    // The screen-space region the highlighted layout maps to. Uses the
-    // dynamic grid splits instead of the static layout fractions, matching
-    // the geometry KWin's quickTileGeometry()/tileForMode() would report.
+    // The screen-space region the highlighted layout maps to. Resolution
+    // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
+    // native snapping feeds its outline (probed, not exposed on every
+    // build); (2) the live grid splits measured from the real tile tree.
     // hSplit/vSplit are read directly here (not through a JS call) so the
     // binding re-evaluates when the grid changes.
     readonly property rect highlightGeometry: {
+        if (dragWindow && highlightedLayout !== "") {
+            try {
+                if (dragWindow.quickTileGeometry) {
+                    var native = dragWindow.quickTileGeometry(
+                        Logic.zoneMode(highlightedLayout), Workspace.cursorPos)
+                    if (native && native.width > 0 && native.height > 0) {
+                        return Qt.rect(native.x, native.y, native.width, native.height)
+                    }
+                }
+            } catch (e) {
+                // Not scriptable here: fall through to the tile-tree splits.
+            }
+        }
         var l = Logic.layoutById(highlightedLayout)
         if (!l) {
             return Qt.rect(0, 0, 0, 0)
@@ -100,10 +119,10 @@ PlasmaCore.Dialog {
         var bottomTops = []
 
         // A leaf rect contributes split values only if it is clearly
-        // anchored to the screen edges. Frame geometry is used so the
-        // measured edges sit exactly on the tile partition lines. With
-        // margins/gaps in a custom tiling the frame stays inset from the
-        // edges, so such setups fall through to the default grid.
+        // anchored to the screen edges. Tile.absoluteGeometry is used so
+        // the measured edges sit exactly on the tile partition lines —
+        // layered windows cannot skew them. Custom tilings whose cells
+        // stay inset from the edges fall through to the default grid.
         function consider(rect) {
             if (!rect || rect.width < 50 || rect.height < 50) {
                 return
@@ -164,9 +183,10 @@ PlasmaCore.Dialog {
             }
         }
 
-        // Union of the client rects of every window a tile manages. For a
-        // quick leaf that is one window; for a custom tile holding several
-        // stacked windows, the union is the cell they jointly fill.
+        // Exact partition lines from KWin's real quick-tile tree: a leaf's
+        // Tile.absoluteGeometry is the tile's own geometry — layered
+        // windows can never skew the splits the way window-frame unions
+        // did.
         function addLeaf(tile) {
             if (!tile) {
                 return
@@ -178,30 +198,13 @@ PlasmaCore.Dialog {
                 }
                 return
             }
-            var wins = tile.windows
-            var u
-            for (var j = 0; j < wins.length; j++) {
-                var g = wins[j].frameGeometry
-                if (!g || g.width < 50 || g.height < 50) {
-                    continue
-                }
-                if (!u) {
-                    u = Qt.rect(g.x, g.y, g.width, g.height)
-                } else {
-                    var ux1 = Math.min(u.x, g.x)
-                    var uy1 = Math.min(u.y, g.y)
-                    var ux2 = Math.max(u.x + u.width, g.x + g.width)
-                    var uy2 = Math.max(u.y + u.height, g.y + g.height)
-                    u = Qt.rect(ux1, uy1, ux2 - ux1, uy2 - uy1)
-                }
-            }
-            if (u) {
-                consider(u)
+            if (tile.absoluteGeometry) {
+                consider(tile.absoluteGeometry)
             }
         }
 
         // Walk to the tree root from the first tiled window on this screen
-        // and desktop, then collect every leaf's windows.
+        // and desktop, then collect every leaf's tile geometry.
         var root = null
         try {
             var wins = Workspace.stackingOrder
@@ -357,6 +360,17 @@ PlasmaCore.Dialog {
             highlightedLayout = ""
             visible = false
         }
+        // KWin's native snap outline (the same renderer native edge-dragging
+        // uses) tracks the highlight and moves with live grid changes. We
+        // only ever hide an outline we showed ourselves — unconditional
+        // hides would erase KWin's own native edge/corner drag previews.
+        if (highlightedLayout !== "" && highlightGeometry.width > 0) {
+            Workspace.showOutline(highlightGeometry)
+            outlineShown = true
+        } else if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
     }
 
     function resetDrag() {
@@ -365,6 +379,10 @@ PlasmaCore.Dialog {
         dragWindow = null
         highlightedLayout = ""
         visible = false
+        if (outlineShown) {
+            Workspace.hideOutline()
+            outlineShown = false
+        }
     }
 
     function onDrop() {
@@ -484,74 +502,6 @@ PlasmaCore.Dialog {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // Fullscreen, click-through overlay that mirrors the native KWin outline
-        // while a layout card is hovered. Position/size come from the same
-        // MaximizeArea-based math KWin's quickTileGeometry() uses.
-        PlasmaCore.Dialog {
-            id: zoneOverlay
-            // Shown only while the popup is up AND a layout card is hovered.
-            // Declarative binding: reacts only when the highlighted layout
-            // (or popup visibility/drag state) actually changes, so nothing
-            // is churned on the 16ms poll.
-            visible: popup.dragging && popup.visible && popup.highlightedLayout !== ""
-            type: PlasmaCore.Dialog.OnScreenDisplay
-            location: PlasmaCore.Types.Desktop
-            backgroundHints: PlasmaCore.Types.NoBackground
-            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
-            hideOnWindowDeactivate: false
-            outputOnly: true
-            x: popup.screenArea.x
-            y: popup.screenArea.y
-            // Declared full-screen size properties (mirroring kzones'
-            // mainDialog), so the overlay window is born at the full client
-            // area instead of being sized to its first highlight.
-            width: popup.screenArea.width
-            height: popup.screenArea.height
-            // Explicit resize whenever shown, never on the poll.
-            onVisibleChanged: {
-                if (visible) {
-                    setWidth(popup.screenArea.width)
-                    setHeight(popup.screenArea.height)
-                }
-            }
-
-            // Full-size content host so the highlight always has a correctly
-            // sized parent context.
-            Item {
-                id: overlayContent
-                width: zoneOverlay.width
-                height: zoneOverlay.height
-
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (kzones zone pattern).
-                Item {
-                    id: highlightHost
-                    x: popup.highlightGeometry.x - popup.screenArea.x
-                    y: popup.highlightGeometry.y - popup.screenArea.y
-                    width: popup.highlightGeometry.width
-                    height: popup.highlightGeometry.height
-
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 12
-                        color: overlayHelper.overlayFill
-                        border.color: overlayHelper.overlayBorder
-                        border.width: 2
-                    }
-
-                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                }
-
-                Components.ColorHelper {
-                    id: overlayHelper
                 }
             }
         }
