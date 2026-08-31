@@ -6,7 +6,7 @@ When you drag a window into the top edge of the screen, a translucent panel with
 
 ## Demo
 
-![Demo of KDE Snap Overlay](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo-compact.gif)
+![Demo of KDE Snap Overlay](https://raw.githubusercontent.com/IamAndelib/kde-snap-overlay/main/screenshots/demo.gif)
 
 All native behaviors are left intact:
 
