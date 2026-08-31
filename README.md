@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.2.1.kwinscript` from the repo root or the [v1.2.1 release](https://github.com/IamAndelib/kde-snap-overlay/releases/tag/v1.2.1) (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.4.1.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -65,12 +65,14 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | Key                  | Default | Range | Meaning                                              |
 | -------------------- | ------- | ----- | ---------------------------------------------------- |
 | `activationDistance` | 150     | 100–400 | Band below the top edge (px) in which the popup appears |
-| `topGap`             | 60      | 20–(activationDistance−68) | Gap between the top edge and the popup, keeping the native maximize zone clear |
+| `topGap`             | 25      | 0–(activationDistance−84) | Resting offset between the top edge and the popup panel (25 replicates the old selector chrome) |
+| `showDistance`       | 75      | topGap+10–activationDistance−10 | Cursor distance from the top edge below which the popup fully drops (beyond it, only the peek sliver shows). Default matches KZones' trigger distance |
+| `peekHeight`         | 15      | 10–popupHeight−20 | Height of the popup sliver that peaks over the top edge while peeking |
 | `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 
 ```sh
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationDistance 150
-kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 60
+kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 25
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0.25
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
@@ -95,16 +97,18 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 ## How it works
 
-- Written as a declarative KWin script (`X-Plasma-API: declarativescript`).
-- Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window.
-- While dragging, a 16 ms poll of `Workspace.cursorPos` shows the popup (a `PlasmaCore.Dialog`, click-through via `outputOnly`) whenever the cursor is in the top band.
-- On release, the highlighted layout's `slotWindowQuickTile*` is called. A short delay lets KWin commit the drop first.
-- The zone overlay highlight is **dynamic**: before the popup shows, the script reads KWin's live tile tree (through a tiled window's `tile` property) and derives the current grid splits, so the highlight always matches the exact empty space the snap would fill — e.g. snapping a window at 30% makes the opposite preview show the remaining 70%.
+- Written as a declarative KWin script (`X-Plasma-API: declarativescript`), with the popup skins and two-stage reveal forked from [KZones](NOTICE).
+- Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window; the popup dialog maps at grab time (KZones' activation), so the reveal is margin animation inside an already-mapped window.
+- While dragging, a 16 ms poll of `Workspace.cursorPos` drives the two-stage reveal (peek sliver → full drop) based on cursor distance and selector hover; hovering the panel keeps it fully shown, and layout selection happens only over the popup's cards.
+- The popup is a native Plasma dialog: theme translucency, KWin blur-behind and the theme's border/shadow — it follows the system look (no custom panel painting).
+- The snap preview is **KWin's native outline**: hovering a card drives `Workspace.showOutline()`/`hideOutline()` — the same renderer native edge-dragging uses.
+- The preview geometry is **exact**: `Window.quickTileGeometry()` (the call native snapping itself makes, probed at runtime) with an exact fallback that reads the live tile tree via `Workspace.rootTile()` and `Tile.absoluteGeometry` — layered windows cannot skew the ratios.
+- On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme
 
-The popup follows the active Plasma color scheme, and updates **live** — no relog needed. Colors come from `Kirigami.Theme` (per `contents/ui/components/ColorHelper.qml`), which is wired the same way as KZones: a `ColorHelper` instance owned by each consumer, with the script root being the `PlasmaCore.Dialog` itself. There are no hardcoded colors in the UI.
+The popup's panel is the Plasma dialog's default theme background (theme translucency + KWin blur-behind), and the layout cards are painted with Kirigami theme tokens per `contents/ui/components/ColorHelper.qml` — everything follows the active Plasma color scheme live, with no hardcoded colors. (KWin's trimmed `org.kde.plasma.core` module does not export `FrameSvgItem` to scripts, so the cards are Qt Quick painted with the system palette.)
 
 ## Troubleshooting
 
@@ -119,4 +123,9 @@ The popup follows the active Plasma color scheme, and updates **live** — no re
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).
+
+Part of this project (the KZones-inspired components and popup/overlay design)
+is derived from [KZones](https://github.com/gerritdevriese/kzones)
+(GPL-3.0-or-later, copyright Gerrit de Vries and contributors); see
+[NOTICE](NOTICE).
