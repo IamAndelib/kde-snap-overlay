@@ -387,7 +387,11 @@ PlasmaCore.Dialog {
             onTick()
         })
         window.interactiveMoveResizeFinished.connect(function() {
-            onDrop()
+            // Resize finishes and other windows' move ends must not
+            // disturb an active drag or the idle state.
+            if (dragWindow === window) {
+                onDrop()
+            }
         })
     }
 
