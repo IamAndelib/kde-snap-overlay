@@ -478,20 +478,24 @@ PlasmaCore.Dialog {
                 var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
                 hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
             }
-            // Boundary hysteresis: switching between two non-empty zones
-            // requires the cursor to sit 6px inside the new zone. The mini
-            // zone targets inside the cards are small (a quadrant is
-            // ~65x35px), so hand tremor resting on a card's internal split
-            // line would otherwise flip the hit back and forth — re-arming
-            // the dwell and flashing the overlay. Entering from "" stays
-            // instant. (var g is function-scoped and always assigned before
-            // this runs: hit can only differ from highlightedZone when
-            // fullZone was true.)
-            if (hit !== "" && highlightedZone !== "" && hit !== highlightedZone) {
-                var r = Logic.zoneRectInPopup(hit, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
+            // Leave-margin hysteresis: a zone change — to another zone or
+            // to "" — only commits once the cursor sits 6px clear of the
+            // current zone's rect. The mini zone targets inside the cards
+            // are small (a quadrant is ~65x35px) and a resting hand
+            // trembles 1-2px, so an ungated edge crossing on a single poll
+            // tick would clear the highlight, start the overlay's fade-out
+            // and re-arm the dwell — the blink — while the inverse
+            // enter-margin variant (v1.6.1) pinned the highlight to the old
+            // zone whenever the cursor rested near the new zone's edge.
+            // Entering from "" stays instant; decisive moves commit within
+            // one tick. (var g is function-scoped and always assigned
+            // before this runs: hit can only differ from highlightedZone
+            // when fullZone was true.)
+            if (hit !== highlightedZone && highlightedZone !== "") {
+                var r = Logic.zoneRectInPopup(highlightedZone, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
                 var margin = 6
-                if (pos.x < r.x + margin || pos.x > r.x + r.width - margin ||
-                    pos.y < r.y + margin || pos.y > r.y + r.height - margin) {
+                if (pos.x >= r.x - margin && pos.x <= r.x + r.width + margin &&
+                    pos.y >= r.y - margin && pos.y <= r.y + r.height + margin) {
                     hit = highlightedZone
                 }
             }
