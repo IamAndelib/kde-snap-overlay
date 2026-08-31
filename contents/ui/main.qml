@@ -59,15 +59,19 @@ PlasmaCore.Dialog {
     // 0 = engage instantly (FancyZones' own behavior).
     readonly property int highlightDelay: Math.min(Math.max(KWin.readConfig("highlightDelay", 150), 0), 500)
     // Fade-in duration (ms) of the overlay — FancyZones' FadeInDurationMillis
-    // 200, a linear alpha ramp. 0 = instant.
+    // 200, a linear alpha ramp. This is the ONLY animation in the overlay:
+    // upstream redraws zone switches instantly and hides instantly, and so
+    // do we (the dip/slide/fade-out refinements kept reading as a blink).
+    // 0 = instant.
     readonly property int overlayFadeIn: Math.min(Math.max(KWin.readConfig("overlayFadeIn", 200), 0), 1000)
-    // Fade-out duration (ms) on disengage — upstream hides instantly; the
-    // soft retreat is our refinement. 0 = instant.
-    readonly property int overlayFadeOut: Math.min(Math.max(KWin.readConfig("overlayFadeOut", 150), 0), 500)
     // Alpha of the overlay's accent fill — FancyZones' highlightOpacity
     // (default 50). The border stays near-opaque; colors remain the live
     // Kirigami tokens.
     readonly property real highlightOpacity: Math.min(Math.max(KWin.readConfig("highlightOpacity", 50), 5), 100) / 100
+    // Journal diagnostics for the overlay state machine (engage/switch/
+    // disengage/map), off by default. Read with:
+    //   journalctl --user -b | grep kde-snap-overlay
+    readonly property bool debugLog: KWin.readConfig("debugLog", false)
 
     // ---- Card / popup metrics (KZones indicator sizing) ----
     readonly property int cardW: 130
@@ -125,21 +129,13 @@ PlasmaCore.Dialog {
     property string overlayZone: ""
     // Zone the cursor is currently resting on, awaiting the dwell timer.
     property string dwellCandidate: ""
-    // False until the overlay's highlight has been placed for the current
-    // mapping. While false the highlight host's geometry Behaviors are
-    // disabled, so the engage places the rect instantly (FancyZones parity:
-    // upstream zones never animate into place); once true, zone switches
-    // keep their 90ms slide. Reset wherever overlayZone is cleared.
-    property bool outlineSettled: false
 
     onOverlayZoneChanged: {
-        // Dip only on a genuine zone switch while the overlay is already on
-        // screen (latched && engaged). A first engage — or a re-engage after
-        // a fade-out — must play the plain fade-in: dipping here while the
-        // fade-in runs (engaged can briefly read true through a stale
-        // outline rect) blinks the highlight.
-        if (overlayZone !== "" && zoneOverlay.latched && zoneOverlay.engaged) {
-            switchFade.restart()
+        // Diagnostic only: upstream switches zones by redrawing the scene
+        // instantly — there is no transition to trigger here anymore.
+        if (debugLog && overlayZone !== "" && zoneOverlay.engaged) {
+            console.info("[kde-snap-overlay] overlay switch ->", overlayZone,
+                "rect", JSON.stringify(zoneOutlineRect))
         }
     }
     property string pendingZone: ""
@@ -404,14 +400,13 @@ PlasmaCore.Dialog {
             retracted = true
             hideTimer.stop()
             // Overlay state starts clean every drag: no stale dwell
-            // candidate, no outline rect or settled flag carried over from
-            // a previous drag (a stale non-zero rect used to make the
-            // engage path fire the switch dip mid-fade-in — the blink).
+            // candidate or outline rect carried over from a previous drag
+            // (a stale non-zero rect would let `engaged` read true before
+            // the dwell has placed a fresh rect).
             dwellCandidate = ""
             dwellTimer.stop()
             overlayZone = ""
             zoneOutlineRect = Qt.rect(0, 0, 0, 0)
-            outlineSettled = false
             refreshScreenArea()
             dragWindow = window
             // One grid read per drag: nothing re-tiles while a single drag
@@ -511,8 +506,6 @@ PlasmaCore.Dialog {
                 if (hit === "") {
                     dwellTimer.stop()
                     overlayZone = ""
-                    // Disengaged: the next engage must place, not slide.
-                    outlineSettled = false
                 } else if (highlightDelay <= 0) {
                     dwellTimer.stop()
                     overlayZone = hit
@@ -527,7 +520,6 @@ PlasmaCore.Dialog {
             dwellCandidate = ""
             dwellTimer.stop()
             overlayZone = ""
-            outlineSettled = false
             fullZone = false
             retracted = true
             if (!hideTimer.running) {
@@ -555,7 +547,6 @@ PlasmaCore.Dialog {
         dwellTimer.stop()
         overlayZone = ""
         zoneOutlineRect = Qt.rect(0, 0, 0, 0)
-        outlineSettled = false
         fullZone = false
         if (flyOut) {
             retracted = true
@@ -636,23 +627,13 @@ PlasmaCore.Dialog {
         // from the same quickTileGeometry()-fed math KWin's outline gets.
         PlasmaCore.Dialog {
             id: zoneOverlay
-            // Engaged: the dwell-approved overlay should be on screen.
+            // Engaged: the dwell-approved overlay should be on screen. The
+            // dialog maps and hides directly on this binding — FancyZones'
+            // model, where Show()/Hide() are plain window operations and
+            // the only animation is the content's fade-in.
             readonly property bool engaged: popup.dragging && popup.visible
                 && popup.overlayZone !== "" && popup.zoneOutlineRect.width > 0
-            // Latched: the window stays mapped through the fade-out so the
-            // opacity animation can finish; fadeOutTimer clears it and the
-            // dialog hides declaratively. Never assigned imperatively, so
-            // the visible binding survives.
-            property bool latched: false
-            visible: latched
-            onEngagedChanged: {
-                if (engaged) {
-                    latched = true
-                    fadeOutTimer.stop()
-                } else if (latched) {
-                    fadeOutTimer.restart()
-                }
-            }
+            visible: engaged
             type: PlasmaCore.Dialog.OnScreenDisplay
             location: PlasmaCore.Types.Desktop
             backgroundHints: PlasmaCore.Types.NoBackground
@@ -666,28 +647,45 @@ PlasmaCore.Dialog {
             // first highlight.
             width: popup.screenArea.width
             height: popup.screenArea.height
-            // Explicit resize whenever shown, never on the poll.
+            // Explicit resize whenever shown, never on the poll. The debug
+            // line exposes the window's width BEFORE the imperative resize:
+            // if the Dialog ever maps at a stale/auto-sized dimension and is
+            // corrected a frame later, that shows up here as a blink whose
+            // cause no animation code can explain.
             onVisibleChanged: {
                 if (visible) {
+                    if (popup.debugLog) {
+                        console.info("[kde-snap-overlay] overlay map at",
+                            zoneOverlay.width + "x" + zoneOverlay.height,
+                            "-> resize to", popup.screenArea.width + "x" + popup.screenArea.height)
+                    }
                     setWidth(popup.screenArea.width)
                     setHeight(popup.screenArea.height)
                 }
             }
 
             // Full-size content host so the highlight always has a correctly
-            // sized parent context.
+            // sized parent context. The explicit implicit size keeps the
+            // Dialog's auto-sizing (from the mainItem) in agreement with the
+            // declared window size, so mapping cannot thrash the dimensions.
             Item {
                 id: overlayContent
+                implicitWidth: popup.screenArea.width
+                implicitHeight: popup.screenArea.height
                 width: zoneOverlay.width
                 height: zoneOverlay.height
 
-                // FancyZones' fade: a linear alpha ramp over overlayFadeIn on
-                // engage (upstream FadeInDurationMillis 200) and a soft
-                // overlayFadeOut on disengage where upstream hides instantly.
+                // FancyZones' ONE animation: a linear alpha ramp over
+                // overlayFadeIn on show (upstream FadeInDurationMillis 200).
+                // The Behavior is gated on `engaged` so a disengage snaps the
+                // alpha back to 0 immediately (upstream hides instantly) —
+                // otherwise a re-engage during the invisible fade-out would
+                // start mid-way and read as a blink.
                 opacity: zoneOverlay.engaged ? 1 : 0
                 Behavior on opacity {
+                    enabled: zoneOverlay.engaged
                     NumberAnimation {
-                        duration: zoneOverlay.engaged ? popup.overlayFadeIn : popup.overlayFadeOut
+                        duration: popup.overlayFadeIn
                         easing.type: Easing.Linear
                     }
                 }
@@ -710,26 +708,14 @@ PlasmaCore.Dialog {
                         border.width: 2
                     }
 
-                    Behavior on x { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    // No geometry animation: FancyZones redraws zone switches
+                    // instantly, and the slide kept reading as a blink.
                 }
 
                 Components.ColorHelper {
                     id: overlayHelper
                     // FancyZones' highlightOpacity (default 50) on the fill.
                     fillAlpha: popup.highlightOpacity
-                }
-
-                // Brief opacity dip when the engaged zone switches — reads as
-                // a crossfade while the highlight's geometry slides to the
-                // new zone. Upstream switches instantly; ours softens the
-                // jump. Triggered from onOverlayZoneChanged.
-                SequentialAnimation {
-                    id: switchFade
-                    NumberAnimation { target: highlight; property: "opacity"; to: 0.35; duration: 60 }
-                    NumberAnimation { target: highlight; property: "opacity"; to: 1; duration: 90 }
                 }
             }
         }
@@ -759,24 +745,13 @@ PlasmaCore.Dialog {
             onTriggered: {
                 if (dragging && dwellCandidate !== "") {
                     overlayZone = dwellCandidate
-                    // Place the outline while outlineSettled is false: the
-                    // highlight host's geometry Behaviors are disabled, so
-                    // the engage snaps into position instead of sliding in
-                    // from the previous rect. The flag then re-arms the
-                    // slide for genuine zone switches.
                     zoneOutlineRect = currentZoneRect()
-                    outlineSettled = true
+                    if (popup.debugLog) {
+                        console.info("[kde-snap-overlay] overlay engage", overlayZone,
+                            "rect", JSON.stringify(zoneOutlineRect))
+                    }
                 }
             }
-        }
-
-        // Keeps the overlay window mapped while its fade-out plays after a
-        // disengage; clearing the latch hides the dialog declaratively.
-        Timer {
-            id: fadeOutTimer
-            interval: popup.overlayFadeOut + 30
-            repeat: false
-            onTriggered: zoneOverlay.latched = false
         }
 
         // One-shot delay so the fly-out animation (the y Behavior easing the
