@@ -455,13 +455,21 @@ PlasmaCore.Dialog {
         // uses) tracks the highlight and moves with live grid changes. We
         // only ever hide an outline we showed ourselves — unconditional
         // hides would erase KWin's own native edge/corner drag previews.
-        var outlineRect = currentZoneRect()
-        if (highlightedZone !== "" && outlineRect.width > 0) {
-            Workspace.showOutline(outlineRect)
-            outlineShown = true
-        } else if (outlineShown) {
-            Workspace.hideOutline()
-            outlineShown = false
+        // Inside the native maximize strip (top edge, ≤ 5px) the outline is
+        // left strictly alone: a hide there can erase the preview KWin shows
+        // on entering the strip, and KWin only re-shows on zone transitions
+        // — that erased the native maximize overlay on quick flicks through
+        // the card row. resetDrag() still cleans up our own outline once
+        // the drag ends.
+        if (pos.y - screenArea.y >= 5) {
+            var outlineRect = currentZoneRect()
+            if (highlightedZone !== "" && outlineRect.width > 0) {
+                Workspace.showOutline(outlineRect)
+                outlineShown = true
+            } else if (outlineShown) {
+                Workspace.hideOutline()
+                outlineShown = false
+            }
         }
     }
 
