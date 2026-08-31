@@ -125,12 +125,20 @@ PlasmaCore.Dialog {
     property string overlayZone: ""
     // Zone the cursor is currently resting on, awaiting the dwell timer.
     property string dwellCandidate: ""
+    // False until the overlay's highlight has been placed for the current
+    // mapping. While false the highlight host's geometry Behaviors are
+    // disabled, so the engage places the rect instantly (FancyZones parity:
+    // upstream zones never animate into place); once true, zone switches
+    // keep their 90ms slide. Reset wherever overlayZone is cleared.
+    property bool outlineSettled: false
 
     onOverlayZoneChanged: {
-        // A zone switch while already engaged: dip the highlight briefly —
-        // reads as a crossfade while the 90ms geometry slide moves it to
-        // the new zone. The first engage plays the plain fade-in instead.
-        if (overlayZone !== "" && zoneOverlay.engaged) {
+        // Dip only on a genuine zone switch while the overlay is already on
+        // screen (latched && engaged). A first engage — or a re-engage after
+        // a fade-out — must play the plain fade-in: dipping here while the
+        // fade-in runs (engaged can briefly read true through a stale
+        // outline rect) blinks the highlight.
+        if (overlayZone !== "" && zoneOverlay.latched && zoneOverlay.engaged) {
             switchFade.restart()
         }
     }
@@ -396,10 +404,14 @@ PlasmaCore.Dialog {
             retracted = true
             hideTimer.stop()
             // Overlay state starts clean every drag: no stale dwell
-            // candidate, no overlay carried over from a previous drag.
+            // candidate, no outline rect or settled flag carried over from
+            // a previous drag (a stale non-zero rect used to make the
+            // engage path fire the switch dip mid-fade-in — the blink).
             dwellCandidate = ""
             dwellTimer.stop()
             overlayZone = ""
+            zoneOutlineRect = Qt.rect(0, 0, 0, 0)
+            outlineSettled = false
             refreshScreenArea()
             dragWindow = window
             // One grid read per drag: nothing re-tiles while a single drag
@@ -466,6 +478,23 @@ PlasmaCore.Dialog {
                 var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
                 hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
             }
+            // Boundary hysteresis: switching between two non-empty zones
+            // requires the cursor to sit 6px inside the new zone. The mini
+            // zone targets inside the cards are small (a quadrant is
+            // ~65x35px), so hand tremor resting on a card's internal split
+            // line would otherwise flip the hit back and forth — re-arming
+            // the dwell and flashing the overlay. Entering from "" stays
+            // instant. (var g is function-scoped and always assigned before
+            // this runs: hit can only differ from highlightedZone when
+            // fullZone was true.)
+            if (hit !== "" && highlightedZone !== "" && hit !== highlightedZone) {
+                var r = Logic.zoneRectInPopup(hit, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
+                var margin = 6
+                if (pos.x < r.x + margin || pos.x > r.x + r.width - margin ||
+                    pos.y < r.y + margin || pos.y > r.y + r.height - margin) {
+                    hit = highlightedZone
+                }
+            }
             if (hit !== highlightedZone) {
                 highlightedZone = hit
             }
@@ -478,6 +507,8 @@ PlasmaCore.Dialog {
                 if (hit === "") {
                     dwellTimer.stop()
                     overlayZone = ""
+                    // Disengaged: the next engage must place, not slide.
+                    outlineSettled = false
                 } else if (highlightDelay <= 0) {
                     dwellTimer.stop()
                     overlayZone = hit
@@ -492,6 +523,7 @@ PlasmaCore.Dialog {
             dwellCandidate = ""
             dwellTimer.stop()
             overlayZone = ""
+            outlineSettled = false
             fullZone = false
             retracted = true
             if (!hideTimer.running) {
@@ -518,6 +550,8 @@ PlasmaCore.Dialog {
         dwellCandidate = ""
         dwellTimer.stop()
         overlayZone = ""
+        zoneOutlineRect = Qt.rect(0, 0, 0, 0)
+        outlineSettled = false
         fullZone = false
         if (flyOut) {
             retracted = true
@@ -672,10 +706,10 @@ PlasmaCore.Dialog {
                         border.width: 2
                     }
 
-                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on x { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on width { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on height { enabled: popup.outlineSettled; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
                 }
 
                 Components.ColorHelper {
@@ -721,7 +755,13 @@ PlasmaCore.Dialog {
             onTriggered: {
                 if (dragging && dwellCandidate !== "") {
                     overlayZone = dwellCandidate
+                    // Place the outline while outlineSettled is false: the
+                    // highlight host's geometry Behaviors are disabled, so
+                    // the engage snaps into position instead of sliding in
+                    // from the previous rect. The flag then re-arms the
+                    // slide for genuine zone switches.
                     zoneOutlineRect = currentZoneRect()
+                    outlineSettled = true
                 }
             }
         }
