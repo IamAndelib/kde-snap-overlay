@@ -106,8 +106,6 @@ PlasmaCore.Dialog {
     property var dragWindow: null
     // Output the drag happens on; the tile tree is per-output/per-desktop.
     property var dragScreen: null
-    // Last poll position; the live grid is only re-read when the cursor moves.
-    property var lastTickPos: Qt.point(-1, -1)
 
     // Current quick-tile grid splits (relative to screenArea), read from
     // KWin's live tile tree at drag start so the highlight matches the space
@@ -373,16 +371,17 @@ PlasmaCore.Dialog {
             hideTimer.stop()
             refreshScreenArea()
             dragWindow = window
-            // Re-read the grid from KWin's tile tree. A snapped window
-            // being re-dragged is still in its tile, so the empty space it
-            // is leaving keeps being reflected.
+            // One grid read per drag: nothing re-tiles while a single drag
+            // is in progress (tiling commits on drop), so the splits cannot
+            // go stale mid-drag. A snapped window being re-dragged is still
+            // in its tile, so the empty space it is leaving keeps being
+            // reflected.
             splitsFromTileTree()
             dragging = true
             // KZones' show(): visible at grab, so the first map after login
             // happens with seconds of slack instead of at the moment of
             // truth. The dialog starts retracted (fully above the screen).
             visible = true
-            lastTickPos = Qt.point(-1, -1)
             pollTimer.start()
             onTick()
         })
@@ -422,12 +421,6 @@ PlasmaCore.Dialog {
             retracted = false
             if (!visible) {
                 visible = true
-            }
-            // Keep the grid live: re-read it whenever the cursor moved so the
-            // diagrams and overlay track the re-tiled layout.
-            if (pos.x !== lastTickPos.x || pos.y !== lastTickPos.y) {
-                lastTickPos = pos
-                splitsFromTileTree()
             }
             // Two-stage KZones-style reveal: peek sliver in the outer band,
             // full drop within showDistance of the top. Hovering the selector
