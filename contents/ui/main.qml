@@ -71,18 +71,14 @@ PlasmaCore.Dialog {
     // Fly-out / fully-retracted state: the panel sits fully above the screen
     // edge (retracted position), inside the still-visible dialog.
     property bool retracted: true
-    // Whether the native outline currently on screen is OURS (shown via
-    // showOutline for a hovered card). Only ever hide an outline we own —
-    // unconditional hides would erase KWin's own native edge/corner
-    // drag previews.
-    property bool outlineShown: false
-    // Outline sync state: cursor position at the previous poll tick, cursor
-    // position at our last showOutline call, and the rect we last showed.
-    // Used to re-assert the outline only when the cursor settles after
-    // having moved — see the sync block in onTick().
-    property point lastTickPos: Qt.point(-1, -1)
-    property point lastShowPos: Qt.point(-1, -1)
-    property rect lastShownRect: Qt.rect(0, 0, 0, 0)
+    // Own static zone outline: the full-screen click-through overlay below
+    // mirrors the native KWin outline look while a zone is hovered. Unlike
+    // KWin's shared Outline — which the interactive-move code hides on every
+    // motion step of the drag, tearing the visual's platform window down —
+    // this is our window, so it stays up without churn while the cursor
+    // moves. Screen-space rect of the highlighted zone, refreshed per poll
+    // tick from currentZoneRect().
+    property rect zoneOutlineRect: Qt.rect(0, 0, 0, 0)
 
     // Theme dialog frames have asymmetric shadow borders (heavier at the
     // bottom/right). Compensate the content insets by half the difference
@@ -325,15 +321,6 @@ PlasmaCore.Dialog {
         }
     }
 
-    Component.onDestruction: {
-        // Never leave our outline on screen after the script goes away
-        // (disable/reload while a card is hovered).
-        if (outlineShown) {
-            Workspace.hideOutline()
-            outlineShown = false
-        }
-    }
-
     // Screen under the given position, falling back to the first screen.
     function screenForCursor(pos) {
         var screens = Workspace.screens
@@ -453,32 +440,12 @@ PlasmaCore.Dialog {
                 hideTimer.restart()
             }
         }
-        // KWin's native snap outline (the same renderer native edge-dragging
-        // uses) tracks the highlighted zone. KWin's own interactive-move code
-        // hides the shared Outline on EVERY motion step of the dragged window,
-        // and every hide tears the outline visual's platform window down —
-        // re-showing per movement rebuilds the visual and stacks up as
-        // ghosting. So the outline is shown once per hover/zone change and
-        // re-asserted only when the cursor settles after having moved. We
-        // only ever hide an outline we showed ourselves — unconditional
-        // hides would erase KWin's own native edge/corner drag previews.
-        var settled = pos.x === lastTickPos.x && pos.y === lastTickPos.y
-        var movedSinceLastShow = pos.x !== lastShowPos.x || pos.y !== lastShowPos.y
-        var rect = currentZoneRect()
-        var rectChanged = rect.x !== lastShownRect.x || rect.y !== lastShownRect.y
-            || rect.width !== lastShownRect.width || rect.height !== lastShownRect.height
-        if (highlightedZone !== "" && rect.width > 0) {
-            if (!outlineShown || rectChanged || (movedSinceLastShow && settled)) {
-                Workspace.showOutline(rect)
-                outlineShown = true
-                lastShowPos = Qt.point(pos.x, pos.y)
-                lastShownRect = rect
-            }
-        } else if (outlineShown) {
-            Workspace.hideOutline()
-            outlineShown = false
-        }
-        lastTickPos = Qt.point(pos.x, pos.y)
+        // Own static zone outline: refresh the overlay's target rect. The
+        // rect is constant per zone (quickTileGeometry only varies per
+        // output/mode), so nothing churns while the cursor moves within a
+        // zone — the overlay stays perfectly static, and the 90ms Behavior
+        // animations play only on real zone switches.
+        zoneOutlineRect = currentZoneRect()
     }
 
     // End the drag. flyOut=true: nothing was dropped on a layout, so the
@@ -491,12 +458,6 @@ PlasmaCore.Dialog {
         dragWindow = null
         highlightedZone = ""
         fullZone = false
-        if (outlineShown) {
-            Workspace.hideOutline()
-            outlineShown = false
-        }
-        lastTickPos = Qt.point(-1, -1)
-        lastShowPos = Qt.point(-1, -1)
         if (flyOut) {
             retracted = true
             hideTimer.restart()
@@ -566,6 +527,78 @@ PlasmaCore.Dialog {
             highlightedZone: popup.highlightedZone
             hSplit: popup.hSplit
             vSplit: popup.vSplit
+        }
+
+        // Fullscreen, click-through overlay that mirrors the native KWin
+        // outline while a zone is hovered. Unlike the shared Outline — which
+        // KWin's own interactive-move code hides on every motion step of the
+        // drag — this is our window: it stays up without churn while the
+        // cursor moves, so the highlight reads as static. Position/size come
+        // from the same quickTileGeometry()-fed math KWin's outline gets.
+        PlasmaCore.Dialog {
+            id: zoneOverlay
+            // Shown only while the popup is up AND a zone is hovered.
+            // Declarative binding: reacts only when the highlighted zone
+            // (or popup visibility/drag state) actually changes, so nothing
+            // is churned on the 16ms poll.
+            visible: popup.dragging && popup.visible && popup.highlightedZone !== ""
+                && popup.zoneOutlineRect.width > 0
+            type: PlasmaCore.Dialog.OnScreenDisplay
+            location: PlasmaCore.Types.Desktop
+            backgroundHints: PlasmaCore.Types.NoBackground
+            flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
+            hideOnWindowDeactivate: false
+            outputOnly: true
+            x: popup.screenArea.x
+            y: popup.screenArea.y
+            // Declared full-screen size properties, so the overlay window is
+            // born at the full client area instead of being sized to its
+            // first highlight.
+            width: popup.screenArea.width
+            height: popup.screenArea.height
+            // Explicit resize whenever shown, never on the poll.
+            onVisibleChanged: {
+                if (visible) {
+                    setWidth(popup.screenArea.width)
+                    setHeight(popup.screenArea.height)
+                }
+            }
+
+            // Full-size content host so the highlight always has a correctly
+            // sized parent context.
+            Item {
+                id: overlayContent
+                width: zoneOverlay.width
+                height: zoneOverlay.height
+
+                // Highlight region, positioned by geometry; the visible
+                // rectangle just fills it (kzones zone pattern).
+                Item {
+                    id: highlightHost
+                    x: popup.zoneOutlineRect.x - popup.screenArea.x
+                    y: popup.zoneOutlineRect.y - popup.screenArea.y
+                    width: popup.zoneOutlineRect.width
+                    height: popup.zoneOutlineRect.height
+
+                    Rectangle {
+                        id: highlight
+                        anchors.fill: parent
+                        radius: 12
+                        color: overlayHelper.overlayFill
+                        border.color: overlayHelper.overlayBorder
+                        border.width: 2
+                    }
+
+                    Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                }
+
+                Components.ColorHelper {
+                    id: overlayHelper
+                }
+            }
         }
 
         Timer {

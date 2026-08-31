@@ -32,6 +32,16 @@ Item {
         return Kirigami.Theme.hoverColor;
     }
 
+    // Zone outline overlay tokens (v1.2.1 pattern): translucent accent fill
+    // with a stronger accent border, over the Kirigami highlight color.
+    property var highColor: Kirigami.Theme.highlightColor
+    property var overlayFill: withAlpha(highColor, 0.32)
+    property var overlayBorder: withAlpha(highColor, 0.85)
+
+    function withAlpha(c, a) {
+        return Qt.rgba(c.r, c.g, c.b, a)
+    }
+
     function getBorderColor(color) {
         if (theme === "light")
             return Kirigami.ColorUtils.tintWithAlpha(color, "black", 0.15);
