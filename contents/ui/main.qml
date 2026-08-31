@@ -477,15 +477,12 @@ PlasmaCore.Dialog {
             // to "" — only commits once the cursor sits 6px clear of the
             // current zone's rect. The mini zone targets inside the cards
             // are small (a quadrant is ~65x35px) and a resting hand
-            // trembles 1-2px, so an ungated edge crossing on a single poll
-            // tick would clear the highlight, start the overlay's fade-out
-            // and re-arm the dwell — the blink — while the inverse
-            // enter-margin variant (v1.6.1) pinned the highlight to the old
-            // zone whenever the cursor rested near the new zone's edge.
-            // Entering from "" stays instant; decisive moves commit within
-            // one tick. (var g is function-scoped and always assigned
-            // before this runs: hit can only differ from highlightedZone
-            // when fullZone was true.)
+            // trembles 1-2px; without the margin, edge jitter on a single
+            // poll tick would flip the zone state, tear down the overlay
+            // and re-arm the dwell. Entering from "" stays instant;
+            // decisive moves commit within one tick. (var g is
+            // function-scoped and always assigned before this runs: hit can
+            // only differ from highlightedZone when fullZone was true.)
             if (hit !== highlightedZone && highlightedZone !== "") {
                 var r = Logic.zoneRectInPopup(highlightedZone, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
                 var margin = 6
@@ -529,8 +526,7 @@ PlasmaCore.Dialog {
         // Own static zone outline: refresh the overlay's target rect. The
         // rect is constant per zone (quickTileGeometry only varies per
         // output/mode), so nothing churns while the cursor moves within a
-        // zone — the overlay stays perfectly static, and the 90ms Behavior
-        // animations play only on real zone switches.
+        // zone — the overlay stays perfectly static.
         zoneOutlineRect = currentZoneRect()
     }
 
@@ -709,7 +705,8 @@ PlasmaCore.Dialog {
                     }
 
                     // No geometry animation: FancyZones redraws zone switches
-                    // instantly, and the slide kept reading as a blink.
+                    // by repainting instantly, so the highlight is placed
+                    // directly at its new rect.
                 }
 
                 Components.ColorHelper {
