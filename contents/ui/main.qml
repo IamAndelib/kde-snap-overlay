@@ -78,8 +78,8 @@ PlasmaCore.Dialog {
     property bool outlineShown: false
     // Outline sync state: cursor position at the previous poll tick, cursor
     // position at our last showOutline call, and the rect we last showed.
-    // Used to re-assert the outline only when needed — see the sync block
-    // in onTick() and onDragStepped().
+    // Used to re-assert the outline only when the cursor settles after
+    // having moved — see the sync block in onTick().
     property point lastTickPos: Qt.point(-1, -1)
     property point lastShowPos: Qt.point(-1, -1)
     property rect lastShownRect: Qt.rect(0, 0, 0, 0)
@@ -397,46 +397,6 @@ PlasmaCore.Dialog {
                 onDrop()
             }
         })
-        // Re-assert the outline right after each motion step (see
-        // onDragStepped). Guarded: not every KWin build exposes the signal.
-        if (window.interactiveMoveResizeStepped) {
-            window.interactiveMoveResizeStepped.connect(onDragStepped)
-        }
-    }
-
-    // Guarded show used by every outline path: validates the drag/hover
-    // state, shows the outline for the hovered zone and refreshes the sync
-    // trackers.
-    function showOutlineNow() {
-        if (!dragging || highlightedZone === "") {
-            return
-        }
-        var rect = currentZoneRect()
-        if (rect.width <= 0) {
-            return
-        }
-        Workspace.showOutline(rect)
-        outlineShown = true
-        lastShownRect = rect
-        var pos = Workspace.cursorPos
-        lastShowPos = Qt.point(pos.x, pos.y)
-    }
-
-    // KWin hides the shared Outline inside each motion step of the drag
-    // (updateInteractiveMoveResize runs outline()->hide() whenever the drag
-    // is outside its electric edge zones — our hover band always is), and
-    // every hide tears the outline visual's platform window down, so
-    // re-showing per poll tick rebuilds the visual per mouse movement,
-    // which stacked up as ghosting. Instead, queue the re-show from the
-    // drag's motion step itself: it lands in the same event-loop turn as
-    // KWin's hide, before the compositor renders its next frame, so the
-    // destroy + recreate are sequenced inside one frame — the outline reads
-    // as static. Qt.callLater coalesces duplicate pending calls, so a burst
-    // of motion events cannot flood the queue.
-    function onDragStepped() {
-        if (dragging && highlightedZone !== "" && outlineShown) {
-            Qt.callLater(showOutlineNow)
-        }
     }
 
     // KZones' isHovering pattern: cursor inside an item's global rect.
@@ -495,15 +455,13 @@ PlasmaCore.Dialog {
         }
         // KWin's native snap outline (the same renderer native edge-dragging
         // uses) tracks the highlighted zone. KWin's own interactive-move code
-        // hides the shared Outline on EVERY motion step of the dragged window
-        // (the drag is always outside its electric edge zones here), so the
-        // live re-assertion happens in onDragStepped() — queued into the same
-        // event turn as each hide. This tick path only catches what the
-        // motion events miss: the first show on hover entry, zone changes,
-        // and re-assertion after movement that produced no motion step (e.g.
-        // a confined cursor). We only ever hide an outline we showed
-        // ourselves — unconditional hides would erase KWin's own native
-        // edge/corner drag previews.
+        // hides the shared Outline on EVERY motion step of the dragged window,
+        // and every hide tears the outline visual's platform window down —
+        // re-showing per movement rebuilds the visual and stacks up as
+        // ghosting. So the outline is shown once per hover/zone change and
+        // re-asserted only when the cursor settles after having moved. We
+        // only ever hide an outline we showed ourselves — unconditional
+        // hides would erase KWin's own native edge/corner drag previews.
         var settled = pos.x === lastTickPos.x && pos.y === lastTickPos.y
         var movedSinceLastShow = pos.x !== lastShowPos.x || pos.y !== lastShowPos.y
         var rect = currentZoneRect()
@@ -511,7 +469,10 @@ PlasmaCore.Dialog {
             || rect.width !== lastShownRect.width || rect.height !== lastShownRect.height
         if (highlightedZone !== "" && rect.width > 0) {
             if (!outlineShown || rectChanged || (movedSinceLastShow && settled)) {
-                showOutlineNow()
+                Workspace.showOutline(rect)
+                outlineShown = true
+                lastShowPos = Qt.point(pos.x, pos.y)
+                lastShownRect = rect
             }
         } else if (outlineShown) {
             Workspace.hideOutline()
