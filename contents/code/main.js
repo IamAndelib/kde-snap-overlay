@@ -64,18 +64,6 @@ function popupSize(nCards, cardW, cardH, gap, pad) {
     return { width: contentW + 2 * pad, height: cardH + 2 * pad };
 }
 
-// The layout that owns a zone id, or "" if unknown.
-function layoutOf(zoneId) {
-    for (var i = 0; i < LAYOUTS.length; i++) {
-        for (var j = 0; j < LAYOUTS[i].zones.length; j++) {
-            if (LAYOUTS[i].zones[j].id === zoneId) {
-                return LAYOUTS[i].id;
-            }
-        }
-    }
-    return "";
-}
-
 // Index of a zone within its layout, or -1 if it is not in that layout.
 function zoneIndexInLayout(layoutId, zoneId) {
     for (var i = 0; i < LAYOUTS.length; i++) {

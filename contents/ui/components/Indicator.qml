@@ -13,15 +13,12 @@ Rectangle {
     id: indicator
 
     property int activeZone: -1
-    property bool hovering: false
     property var zones: []
     property real hs: 0.5
     property real vs: 0.5
 
-    width: parent.width
-    height: parent.height
+    // Sized by the Selector delegate (cardW/cardH).
     color: "transparent"
-    opacity: 1
 
     Repeater {
         id: indicators

@@ -98,8 +98,6 @@ PlasmaCore.Dialog {
 
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
-    // The layout the overlay currently previews (owns the hovered zone).
-    property string currentLayout: "columns"
     property string pendingZone: ""
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
@@ -437,9 +435,6 @@ PlasmaCore.Dialog {
             }
             if (hit !== highlightedZone) {
                 highlightedZone = hit
-                if (hit !== "") {
-                    currentLayout = Logic.layoutOf(hit)
-                }
             }
         } else {
             // Outside the band: fly the panel up off the top edge, then hide
@@ -553,7 +548,6 @@ PlasmaCore.Dialog {
             extraTop: popup.compensateTop
             extraLeft: popup.compensateLeft
             layouts: Logic.LAYOUTS
-            currentLayout: popup.currentLayout
             highlightedZone: popup.highlightedZone
             hSplit: popup.hSplit
             vSplit: popup.vSplit

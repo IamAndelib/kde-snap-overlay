@@ -17,7 +17,6 @@ Item {
     property int cardW: 130
     property int cardH: 70
     property var layouts: []
-    property string currentLayout: ""
     property string highlightedZone: ""
     property real hSplit: 0.5
     property real vSplit: 0.5
@@ -53,7 +52,6 @@ Item {
                 vs: selector.vSplit
                 width: selector.cardW
                 height: selector.cardH
-                hovering: modelData.id === selector.currentLayout
             }
         }
     }
