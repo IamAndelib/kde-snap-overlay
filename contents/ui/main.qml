@@ -49,6 +49,13 @@ PlasmaCore.Dialog {
     // unconditional hides would erase KWin's own native edge/corner
     // drag previews.
     property bool outlineShown: false
+    // Outline sync state: cursor position at the previous poll tick, cursor
+    // position at our last showOutline call, and the rect we last showed.
+    // Used to re-assert the outline only when the cursor settles after
+    // having moved — see the sync block in onTick().
+    property point lastTickPos: Qt.point(-1, -1)
+    property point lastShowPos: Qt.point(-1, -1)
+    property rect lastShownRect: Qt.rect(0, 0, 0, 0)
 
     // Current quick-tile grid splits (relative to screenArea), read from
     // KWin's live tile tree at drag start so the highlight matches the space
@@ -361,16 +368,34 @@ PlasmaCore.Dialog {
             visible = false
         }
         // KWin's native snap outline (the same renderer native edge-dragging
-        // uses) tracks the highlight and moves with live grid changes. We
-        // only ever hide an outline we showed ourselves — unconditional
-        // hides would erase KWin's own native edge/corner drag previews.
-        if (highlightedLayout !== "" && highlightGeometry.width > 0) {
-            Workspace.showOutline(highlightGeometry)
-            outlineShown = true
+        // uses) tracks the highlight. KWin's own interactive-move code hides
+        // the shared Outline on EVERY motion step of the dragged window
+        // (workspace()->outline()->hide() runs whenever the drag is outside
+        // its electric edge zones), and every hide tears the outline visual's
+        // platform window down — re-showing on each poll tick then rebuilds
+        // the visual per mouse movement, which stacks up as ghosting. So the
+        // outline is shown once per hover/rect change and re-asserted only
+        // when the cursor settles after having moved: the minimum number of
+        // show cycles, each landing on a still cursor. We only ever hide an
+        // outline we showed ourselves — unconditional hides would erase
+        // KWin's own native edge/corner drag previews.
+        var settled = pos.x === lastTickPos.x && pos.y === lastTickPos.y
+        var movedSinceLastShow = pos.x !== lastShowPos.x || pos.y !== lastShowPos.y
+        var rect = highlightGeometry
+        var rectChanged = rect.x !== lastShownRect.x || rect.y !== lastShownRect.y
+            || rect.width !== lastShownRect.width || rect.height !== lastShownRect.height
+        if (highlightedLayout !== "" && rect.width > 0) {
+            if (!outlineShown || rectChanged || (movedSinceLastShow && settled)) {
+                Workspace.showOutline(rect)
+                outlineShown = true
+                lastShowPos = Qt.point(pos.x, pos.y)
+                lastShownRect = rect
+            }
         } else if (outlineShown) {
             Workspace.hideOutline()
             outlineShown = false
         }
+        lastTickPos = Qt.point(pos.x, pos.y)
     }
 
     function resetDrag() {
@@ -383,6 +408,8 @@ PlasmaCore.Dialog {
             Workspace.hideOutline()
             outlineShown = false
         }
+        lastTickPos = Qt.point(-1, -1)
+        lastShowPos = Qt.point(-1, -1)
     }
 
     function onDrop() {
