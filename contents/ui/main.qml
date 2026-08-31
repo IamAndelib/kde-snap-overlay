@@ -459,6 +459,10 @@ PlasmaCore.Dialog {
         if (pos.y - screenArea.y >= 5) {
             var outlineRect = currentZoneRect()
             if (highlightedZone !== "" && outlineRect.width > 0) {
+                // The per-tick re-show is load-bearing: KWin's own
+                // interactive-move code re-asserts/hides the shared Outline
+                // on motion steps, so without this churn our preview dies
+                // mid-hover (the change-guard experiment proved it).
                 Workspace.showOutline(outlineRect)
                 outlineShown = true
             } else if (outlineShown) {
