@@ -16,5 +16,10 @@ licensed under GPL-3.0-or-later as part of this combined work:
 `main.qml` (panel styling, zone geometry highlighting and the fullscreen
 quadrant overlay concept).
 
+The fullscreen zone overlay's animation model (dwell-gated highlight, linear
+fade-in, shared highlight opacity) follows the behavior of Microsoft's
+FancyZones (part of PowerToys, MIT license). No FancyZones code is used; the
+implementation is original.
+
 In accordance with GPL-3.0, this project is distributed under the GPL-3.0
 license as a combined work. See `LICENSE`.
