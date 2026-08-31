@@ -312,10 +312,13 @@ PlasmaCore.Dialog {
             connectWindow(order[i])
         }
         Workspace.windowAdded.connect(connectWindow)
-        // Not exposed by every KWin build; guard so an unguarded connect
-        // would abort Component.onCompleted and break the whole instance.
-        if (Workspace.windowClosed) {
-            Workspace.windowClosed.connect(onWindowClosed)
+        // KWin 6's signal for a window going away. Without it a window
+        // closed mid-drag (before the move ever finishes) would leave the
+        // popup and poll stuck. Guarded like the old connect so an API
+        // surprise cannot abort Component.onCompleted and break the
+        // whole instance.
+        if (Workspace.windowRemoved) {
+            Workspace.windowRemoved.connect(onWindowRemoved)
         }
     }
 
@@ -506,10 +509,10 @@ PlasmaCore.Dialog {
         }
     }
 
-    // If the window being dragged is destroyed without emitting
+    // If the window being dragged goes away without emitting
     // interactiveMoveResizeFinished (rare), reset so the popup/poll never
     // get stuck.
-    function onWindowClosed(window) {
+    function onWindowRemoved(window) {
         if (dragging && window === dragWindow) {
             resetDrag(false)
         }
