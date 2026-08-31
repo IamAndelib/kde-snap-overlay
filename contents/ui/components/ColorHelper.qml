@@ -34,8 +34,12 @@ Item {
 
     // Zone outline overlay tokens (v1.2.1 pattern): translucent accent fill
     // with a stronger accent border, over the Kirigami highlight color.
+    // fillAlpha is the fill's alpha — FancyZones' highlightOpacity model
+    // (the overlay's caller maps the highlightOpacity config onto it); the
+    // border stays near-opaque so the zone reads crisply.
+    property real fillAlpha: 0.32
     property var highColor: Kirigami.Theme.highlightColor
-    property var overlayFill: withAlpha(highColor, 0.32)
+    property var overlayFill: withAlpha(highColor, fillAlpha)
     property var overlayBorder: withAlpha(highColor, 0.85)
 
     function withAlpha(c, a) {

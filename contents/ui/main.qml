@@ -52,6 +52,23 @@ PlasmaCore.Dialog {
     // Horizontal trigger margin on each side, derived from the current screen width.
     readonly property real edgeGap: screenArea.width * edgeGapRatio
 
+    // ---- Overlay behavior (FancyZones' animation model) ----
+    // Dwell time (ms) the cursor must rest on one zone before the fullscreen
+    // overlay engages. The popup cards highlight instantly; only the big
+    // screen overlay waits, so sweeping across the cards never pops it.
+    // 0 = engage instantly (FancyZones' own behavior).
+    readonly property int highlightDelay: Math.min(Math.max(KWin.readConfig("highlightDelay", 150), 0), 500)
+    // Fade-in duration (ms) of the overlay — FancyZones' FadeInDurationMillis
+    // 200, a linear alpha ramp. 0 = instant.
+    readonly property int overlayFadeIn: Math.min(Math.max(KWin.readConfig("overlayFadeIn", 200), 0), 1000)
+    // Fade-out duration (ms) on disengage — upstream hides instantly; the
+    // soft retreat is our refinement. 0 = instant.
+    readonly property int overlayFadeOut: Math.min(Math.max(KWin.readConfig("overlayFadeOut", 150), 0), 500)
+    // Alpha of the overlay's accent fill — FancyZones' highlightOpacity
+    // (default 50). The border stays near-opaque; colors remain the live
+    // Kirigami tokens.
+    readonly property real highlightOpacity: Math.min(Math.max(KWin.readConfig("highlightOpacity", 50), 5), 100) / 100
+
     // ---- Card / popup metrics (KZones indicator sizing) ----
     readonly property int cardW: 130
     readonly property int cardH: 70
@@ -101,6 +118,22 @@ PlasmaCore.Dialog {
 
     // Hovered zone id (member of one of the three layouts), "" when none.
     property string highlightedZone: ""
+    // Dwell-gated zone driving the fullscreen overlay (FancyZones' model:
+    // cards highlight instantly, but the screen overlay only engages after
+    // the cursor has rested highlightDelay on the same zone). Cleared as
+    // soon as the cursor leaves the zone or the drag ends.
+    property string overlayZone: ""
+    // Zone the cursor is currently resting on, awaiting the dwell timer.
+    property string dwellCandidate: ""
+
+    onOverlayZoneChanged: {
+        // A zone switch while already engaged: dip the highlight briefly —
+        // reads as a crossfade while the 90ms geometry slide moves it to
+        // the new zone. The first engage plays the plain fade-in instead.
+        if (overlayZone !== "" && zoneOverlay.engaged) {
+            switchFade.restart()
+        }
+    }
     property string pendingZone: ""
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
@@ -120,12 +153,13 @@ PlasmaCore.Dialog {
     // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
     // native snapping feeds its outline (probed, not exposed on every
     // build); (2) the live grid splits measured from the real tile tree.
+    // Reads the dwell-approved overlayZone, not the instant highlight.
     function currentZoneRect() {
-        if (dragWindow && highlightedZone !== "") {
+        if (dragWindow && overlayZone !== "") {
             try {
                 if (dragWindow.quickTileGeometry) {
                     var native = dragWindow.quickTileGeometry(
-                        Logic.zoneMode(highlightedZone), Workspace.cursorPos)
+                        Logic.zoneMode(overlayZone), Workspace.cursorPos)
                     if (native && native.width > 0 && native.height > 0) {
                         return Qt.rect(native.x, native.y, native.width, native.height)
                     }
@@ -361,6 +395,11 @@ PlasmaCore.Dialog {
             // fully retracted inside it.
             retracted = true
             hideTimer.stop()
+            // Overlay state starts clean every drag: no stale dwell
+            // candidate, no overlay carried over from a previous drag.
+            dwellCandidate = ""
+            dwellTimer.stop()
+            overlayZone = ""
             refreshScreenArea()
             dragWindow = window
             // One grid read per drag: nothing re-tiles while a single drag
@@ -430,10 +469,29 @@ PlasmaCore.Dialog {
             if (hit !== highlightedZone) {
                 highlightedZone = hit
             }
+            // Dwell gating for the fullscreen overlay: track the candidate
+            // zone and (re)arm the dwell timer only when it changes — the
+            // cursor moving within one zone neither resets nor blocks the
+            // dwell. highlightDelay 0 engages instantly (FancyZones).
+            if (hit !== dwellCandidate) {
+                dwellCandidate = hit
+                if (hit === "") {
+                    dwellTimer.stop()
+                    overlayZone = ""
+                } else if (highlightDelay <= 0) {
+                    dwellTimer.stop()
+                    overlayZone = hit
+                } else {
+                    dwellTimer.restart()
+                }
+            }
         } else {
             // Outside the band: fly the panel up off the top edge, then hide
             // the dialog once the animation has finished.
             highlightedZone = ""
+            dwellCandidate = ""
+            dwellTimer.stop()
+            overlayZone = ""
             fullZone = false
             retracted = true
             if (!hideTimer.running) {
@@ -457,6 +515,9 @@ PlasmaCore.Dialog {
         pollTimer.stop()
         dragWindow = null
         highlightedZone = ""
+        dwellCandidate = ""
+        dwellTimer.stop()
+        overlayZone = ""
         fullZone = false
         if (flyOut) {
             retracted = true
@@ -537,12 +598,23 @@ PlasmaCore.Dialog {
         // from the same quickTileGeometry()-fed math KWin's outline gets.
         PlasmaCore.Dialog {
             id: zoneOverlay
-            // Shown only while the popup is up AND a zone is hovered.
-            // Declarative binding: reacts only when the highlighted zone
-            // (or popup visibility/drag state) actually changes, so nothing
-            // is churned on the 16ms poll.
-            visible: popup.dragging && popup.visible && popup.highlightedZone !== ""
-                && popup.zoneOutlineRect.width > 0
+            // Engaged: the dwell-approved overlay should be on screen.
+            readonly property bool engaged: popup.dragging && popup.visible
+                && popup.overlayZone !== "" && popup.zoneOutlineRect.width > 0
+            // Latched: the window stays mapped through the fade-out so the
+            // opacity animation can finish; fadeOutTimer clears it and the
+            // dialog hides declaratively. Never assigned imperatively, so
+            // the visible binding survives.
+            property bool latched: false
+            visible: latched
+            onEngagedChanged: {
+                if (engaged) {
+                    latched = true
+                    fadeOutTimer.stop()
+                } else if (latched) {
+                    fadeOutTimer.restart()
+                }
+            }
             type: PlasmaCore.Dialog.OnScreenDisplay
             location: PlasmaCore.Types.Desktop
             backgroundHints: PlasmaCore.Types.NoBackground
@@ -571,6 +643,17 @@ PlasmaCore.Dialog {
                 width: zoneOverlay.width
                 height: zoneOverlay.height
 
+                // FancyZones' fade: a linear alpha ramp over overlayFadeIn on
+                // engage (upstream FadeInDurationMillis 200) and a soft
+                // overlayFadeOut on disengage where upstream hides instantly.
+                opacity: zoneOverlay.engaged ? 1 : 0
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: zoneOverlay.engaged ? popup.overlayFadeIn : popup.overlayFadeOut
+                        easing.type: Easing.Linear
+                    }
+                }
+
                 // Highlight region, positioned by geometry; the visible
                 // rectangle just fills it (kzones zone pattern).
                 Item {
@@ -597,6 +680,18 @@ PlasmaCore.Dialog {
 
                 Components.ColorHelper {
                     id: overlayHelper
+                    // FancyZones' highlightOpacity (default 50) on the fill.
+                    fillAlpha: popup.highlightOpacity
+                }
+
+                // Brief opacity dip when the engaged zone switches — reads as
+                // a crossfade while the highlight's geometry slides to the
+                // new zone. Upstream switches instantly; ours softens the
+                // jump. Triggered from onOverlayZoneChanged.
+                SequentialAnimation {
+                    id: switchFade
+                    NumberAnimation { target: highlight; property: "opacity"; to: 0.35; duration: 60 }
+                    NumberAnimation { target: highlight; property: "opacity"; to: 1; duration: 90 }
                 }
             }
         }
@@ -612,6 +707,32 @@ PlasmaCore.Dialog {
             id: commitTimer
             interval: 80
             onTriggered: onCommit()
+        }
+
+        // Dwell timer for the fullscreen overlay (FancyZones-style rest):
+        // armed only when the candidate zone changes, so the cursor moving
+        // within one zone neither resets nor blocks the dwell. Re-reads the
+        // outline here so the overlay engages within the same beat instead
+        // of waiting for the next 16ms poll.
+        Timer {
+            id: dwellTimer
+            interval: popup.highlightDelay
+            repeat: false
+            onTriggered: {
+                if (dragging && dwellCandidate !== "") {
+                    overlayZone = dwellCandidate
+                    zoneOutlineRect = currentZoneRect()
+                }
+            }
+        }
+
+        // Keeps the overlay window mapped while its fade-out plays after a
+        // disengage; clearing the latch hides the dialog declaratively.
+        Timer {
+            id: fadeOutTimer
+            interval: popup.overlayFadeOut + 30
+            repeat: false
+            onTriggered: zoneOverlay.latched = false
         }
 
         // One-shot delay so the fly-out animation (the y Behavior easing the
