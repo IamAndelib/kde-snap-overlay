@@ -64,10 +64,6 @@ PlasmaCore.Dialog {
     // do we (the dip/slide/fade-out refinements kept reading as a blink).
     // 0 = instant.
     readonly property int overlayFadeIn: Math.min(Math.max(KWin.readConfig("overlayFadeIn", 200), 0), 1000)
-    // Alpha of the overlay's accent fill — FancyZones' highlightOpacity
-    // (default 50). The border stays near-opaque; colors remain the live
-    // Kirigami tokens.
-    readonly property real highlightOpacity: Math.min(Math.max(KWin.readConfig("highlightOpacity", 50), 5), 100) / 100
     // Journal diagnostics for the overlay state machine (engage/switch/
     // disengage/map), off by default. Read with:
     //   journalctl --user -b | grep kde-snap-overlay
@@ -615,105 +611,95 @@ PlasmaCore.Dialog {
             vSplit: popup.vSplit
         }
 
-        // Fullscreen, click-through overlay that mirrors the native KWin
-        // outline while a zone is hovered. Unlike the shared Outline — which
-        // KWin's own interactive-move code hides on every motion step of the
-        // drag — this is our window: it stays up without churn while the
-        // cursor moves, so the highlight reads as static. Position/size come
-        // from the same quickTileGeometry()-fed math KWin's outline gets.
+        // Themed, click-through zone outline: a Plasma dialog sized and
+        // positioned to the hovered zone's rect — the popup panel's own
+        // mechanism. The Dialog's themed background IS the outline: theme
+        // translucency, KWin blur-behind, native corners, and on
+        // accent-following themes (the default breeze material) the system
+        // accent color. Nothing is painted on top of it and nothing is
+        // forced. Unlike the shared KWin Outline — which the
+        // interactive-move code hides on every motion step of the drag —
+        // this is our own window, repositioned only on committed zone
+        // switches (dwell + leave-margin), so it never churns. Geometry
+        // comes from the same quickTileGeometry()-fed math KWin's outline
+        // gets.
         PlasmaCore.Dialog {
             id: zoneOverlay
             // Engaged: the dwell-approved overlay should be on screen. The
             // dialog maps and hides directly on this binding — FancyZones'
-            // model, where Show()/Hide() are plain window operations and
-            // the only animation is the content's fade-in.
+            // model, where Show()/Hide() are plain window operations.
             readonly property bool engaged: popup.dragging && popup.visible
                 && popup.overlayZone !== "" && popup.zoneOutlineRect.width > 0
             visible: engaged
             type: PlasmaCore.Dialog.OnScreenDisplay
             location: PlasmaCore.Types.Desktop
-            backgroundHints: PlasmaCore.Types.NoBackground
             flags: Qt.BypassWindowManagerHint | Qt.FramelessWindowHint | Qt.Popup
             hideOnWindowDeactivate: false
             outputOnly: true
-            x: popup.screenArea.x
-            y: popup.screenArea.y
-            // Declared full-screen size properties, so the overlay window is
-            // born at the full client area instead of being sized to its
-            // first highlight.
-            width: popup.screenArea.width
-            height: popup.screenArea.height
-            // Explicit resize whenever shown, never on the poll. The debug
-            // line exposes the window's width BEFORE the imperative resize:
-            // if the Dialog ever maps at a stale/auto-sized dimension and is
-            // corrected a frame later, that shows up here as a blink whose
-            // cause no animation code can explain.
-            onVisibleChanged: {
-                if (visible) {
-                    if (popup.debugLog) {
-                        console.info("[kde-snap-overlay] overlay map at",
-                            zoneOverlay.width + "x" + zoneOverlay.height,
-                            "-> resize to", popup.screenArea.width + "x" + popup.screenArea.height)
-                    }
-                    setWidth(popup.screenArea.width)
-                    setHeight(popup.screenArea.height)
+            // The window IS the zone rect: global position from the outline
+            // math, size auto-derived from the mainItem's implicit size (the
+            // popup pattern) — no screen-relative offsets, no imperative
+            // resizing.
+            x: popup.zoneOutlineRect.x
+            y: popup.zoneOutlineRect.y
+
+            // Defensively-read Dialog margins (the same guarded pattern the
+            // popup's centering compensation uses): they shrink the content
+            // item below so the WINDOW auto-sizes back to exactly the zone
+            // rect. If the margins are not exposed, the fallback is 0 and
+            // the outline simply inflates by the default margins.
+            readonly property real mLeft: {
+                var v = NaN
+                try { v = margins.left } catch (e) {}
+                return isNaN(v) ? 0 : Math.max(0, v)
+            }
+            readonly property real mTop: {
+                var v = NaN
+                try { v = margins.top } catch (e) {}
+                return isNaN(v) ? 0 : Math.max(0, v)
+            }
+            readonly property real mRight: {
+                var v = NaN
+                try { v = margins.right } catch (e) {}
+                return isNaN(v) ? 0 : Math.max(0, v)
+            }
+            readonly property real mBottom: {
+                var v = NaN
+                try { v = margins.bottom } catch (e) {}
+                return isNaN(v) ? 0 : Math.max(0, v)
+            }
+
+            // FancyZones' ONE animation, attempted at the window level: a
+            // linear alpha ramp over overlayFadeIn on show. QQuickWindow
+            // opacity may be a no-op under Wayland, in which case the
+            // overlay pops in (upstream-faithful) instead of fading. Gated
+            // on `engaged` so a disengage snaps the alpha back to 0
+            // immediately instead of animating invisibly.
+            opacity: engaged ? 1 : 0
+            Behavior on opacity {
+                enabled: engaged
+                NumberAnimation {
+                    duration: popup.overlayFadeIn
+                    easing.type: Easing.Linear
                 }
             }
 
-            // Full-size content host so the highlight always has a correctly
-            // sized parent context. The explicit implicit size keeps the
-            // Dialog's auto-sizing (from the mainItem) in agreement with the
-            // declared window size, so mapping cannot thrash the dimensions.
+            onVisibleChanged: {
+                if (visible && popup.debugLog) {
+                    console.info("[kde-snap-overlay] overlay map at",
+                        popup.zoneOutlineRect.x + "," + popup.zoneOutlineRect.y,
+                        popup.zoneOutlineRect.width + "x" + popup.zoneOutlineRect.height)
+                }
+            }
+
+            // Content item: sized so the WINDOW lands exactly on the zone
+            // rect (window = mainItem + margins). Empty on purpose — the
+            // Dialog's themed background is the entire outline; nothing is
+            // painted on top of it.
             Item {
                 id: overlayContent
-                implicitWidth: popup.screenArea.width
-                implicitHeight: popup.screenArea.height
-                width: zoneOverlay.width
-                height: zoneOverlay.height
-
-                // FancyZones' ONE animation: a linear alpha ramp over
-                // overlayFadeIn on show (upstream FadeInDurationMillis 200).
-                // The Behavior is gated on `engaged` so a disengage snaps the
-                // alpha back to 0 immediately (upstream hides instantly) —
-                // otherwise a re-engage during the invisible fade-out would
-                // start mid-way and read as a blink.
-                opacity: zoneOverlay.engaged ? 1 : 0
-                Behavior on opacity {
-                    enabled: zoneOverlay.engaged
-                    NumberAnimation {
-                        duration: popup.overlayFadeIn
-                        easing.type: Easing.Linear
-                    }
-                }
-
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (kzones zone pattern).
-                Item {
-                    id: highlightHost
-                    x: popup.zoneOutlineRect.x - popup.screenArea.x
-                    y: popup.zoneOutlineRect.y - popup.screenArea.y
-                    width: popup.zoneOutlineRect.width
-                    height: popup.zoneOutlineRect.height
-
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 12
-                        color: overlayHelper.overlayFill
-                        border.color: overlayHelper.overlayBorder
-                        border.width: 2
-                    }
-
-                    // No geometry animation: FancyZones redraws zone switches
-                    // by repainting instantly, so the highlight is placed
-                    // directly at its new rect.
-                }
-
-                Components.ColorHelper {
-                    id: overlayHelper
-                    // FancyZones' highlightOpacity (default 50) on the fill.
-                    fillAlpha: popup.highlightOpacity
-                }
+                implicitWidth: Math.max(0, popup.zoneOutlineRect.width - zoneOverlay.mLeft - zoneOverlay.mRight)
+                implicitHeight: Math.max(0, popup.zoneOutlineRect.height - zoneOverlay.mTop - zoneOverlay.mBottom)
             }
         }
 
