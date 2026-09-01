@@ -24,7 +24,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.7.0.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.7.2.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)):
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -71,7 +71,6 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 | `highlightDelay`     | 150     | 0–500 | Rest (ms) the cursor must hold on one layout before the fullscreen zone overlay engages. The popup cards highlight instantly either way; `0` engages the overlay instantly (FancyZones' own behavior) |
 | `overlayFadeIn`      | 200     | 0–1000 | Fade-in duration (ms) of the zone overlay — FancyZones' 200ms linear alpha ramp, the overlay's only animation |
-| `highlightOpacity`   | 50      | 5–100 | Opacity (%) of the overlay's accent fill (FancyZones' highlightOpacity); the border stays near-opaque |
 | `debugLog`           | false   | — | Log the overlay state machine (engage/switch/disengage/map) to the journal: `journalctl --user -b \| grep kde-snap-overlay` |
 
 ```sh
@@ -105,19 +104,20 @@ qdbus6 org.kde.KWin /KWin reconfigure
 - Window drag start/finish is detected via the `interactiveMoveResizeStarted/Finished` signals on each window; the popup dialog maps at grab time (KZones' activation), so the reveal is margin animation inside an already-mapped window.
 - While dragging, a 16 ms poll of `Workspace.cursorPos` drives the two-stage reveal (peek sliver → full drop) based on cursor distance and selector hover; hovering the panel keeps it fully shown, and layout selection happens only over the popup's cards.
 - The popup is a native Plasma dialog: theme translucency, KWin blur-behind and the theme's border/shadow — it follows the system look (no custom panel painting).
-- The snap preview is **our own static overlay window** (v1.2.1's pattern): a fullscreen click-through OSD dialog hosting an accent highlight positioned by zone geometry. KWin's shared Outline is hidden by the interactive-move code on every pointer motion event during a drag — and every hide tears its visual's platform window down — so driving that shared outline can only flicker (settle-based re-show) or ghost (per-movement re-show). Our own window stays perfectly static while the cursor moves.
-- The overlay follows **FancyZones' (MIT) animation model, forked exactly**: the popup cards highlight instantly, but the fullscreen zone overlay only engages after the cursor rests `highlightDelay` on one layout — sweeping across the cards never pops the overlay window. Its show is a 200ms linear fade (FancyZones' `FadeInDurationMillis`) — the overlay's only animation: zone switches redraw instantly and hiding is instant, exactly like upstream's `ZonesOverlay` (which never animates zone transitions or hide). The fill is drawn at `highlightOpacity` (FancyZones' default 50%). Drop semantics are untouched: a quick flick-and-drop still snaps from the *instant* hover zone, the dwell gates only the visuals.
+- The snap preview is **a themed click-through Plasma dialog** sized and positioned to the hovered zone's rect — the popup panel's own mechanism. Its themed background IS the entire outline: theme translucency, KWin blur-behind, native corners, and on accent-following themes (the default breeze material) the system accent color. Nothing is painted on top of it. KWin's shared Outline is hidden by the interactive-move code on every pointer motion event during a drag — and every hide tears its visual's platform window down — so driving that shared outline can only flicker (settle-based re-show) or ghost (per-movement re-show). Our own window is repositioned only on committed zone switches and never churns while the cursor moves.
+- The overlay follows **FancyZones' (MIT) animation model, forked exactly**: the popup cards highlight instantly, but the zone overlay only engages after the cursor rests `highlightDelay` on one layout — sweeping across the cards never pops the overlay window. Its show is a 200ms linear fade (FancyZones' `FadeInDurationMillis`) — the overlay's only animation: zone switches redraw instantly and hiding is instant, exactly like upstream's `ZonesOverlay` (which never animates zone transitions or hide). Drop semantics are untouched: a quick flick-and-drop still snaps from the *instant* hover zone, the dwell gates only the visuals.
 - The preview geometry is **exact**: `Window.quickTileGeometry()` (the call native snapping itself makes, probed at runtime) with an exact fallback that reads the live tile tree via `Workspace.rootTile()` and `Tile.absoluteGeometry` — layered windows cannot skew the ratios.
 - On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme
 
-The popup's panel is the Plasma dialog's default theme background (theme translucency + KWin blur-behind), and the layout cards are painted with Kirigami theme tokens per `contents/ui/components/ColorHelper.qml` — everything follows the active Plasma color scheme live, with no hardcoded colors. (KWin's trimmed `org.kde.plasma.core` module does not export `FrameSvgItem` to scripts, so the cards are Qt Quick painted with the system palette.)
+The popup's panel and the zone outline are Plasma dialogs with their default theme background — theme translucency, KWin blur-behind, native corners — and the layout cards are painted with Kirigami theme tokens per `contents/ui/components/ColorHelper.qml`. Everything follows the active Plasma color scheme live, with no hardcoded colors; on accent-following themes (the default breeze material) both the popup and the outline also take on the system accent color.
 
 ## Troubleshooting
 
-- **Popup doesn't appear**: confirm it's enabled — `kreadconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled` should print `true` — then reconfigure. Check KWin's log: `journalctl --user -b | grep kwin_wayland`.
+- **Popup doesn't appear**: confirm it's enabled — `kreadconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled` should print `true` — then reconfigure. Check KWin's log: `journalctl --user -b | grep kwin_wayland`. A QML compile error shows up as `Component failed to load` and disables the whole script.
+- **Changes not taking effect after reinstalling**: KWin caches compiled QML. A failed compilation stays cached for the lifetime of the compositor process (toggling the script off/on does not clear it), and `~/.cache/kwin/qmlcache/` may also hold stale entries. Log out and back in (or delete `~/.cache/kwin/qmlcache/` first) after replacing a broken build.
 - **Loaded?**: `qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded kde-snap-overlay` should print `true`.
 - **Config not applying**: make sure you use the `Script-kde-snap-overlay` group (that's where KWin scripts read their config) and reconfigure after changing values.
 
