@@ -1,9 +1,10 @@
 // Forked from KZones (https://github.com/gerritdevriese/kzones), Selector.qml
 // as of 0.9.3 (GPL-3.0). Used under the project's license; see NOTICE.
-// Adaptations: the panel background, border, shadow and margin state machine
-// are handled by the owning PlasmaCore.Dialog (native theme background with
-// system translucency and blur); this component is the card row with this
-// project's dynamic-grid Indicators driven by the live KWin tile splits.
+// Adaptations: the panel background, border, shadow and the reveal
+// (window-position) state machine are handled by the owning PlasmaCore.Dialog
+// (native theme background with system translucency and blur); this
+// component is the card row with this project's dynamic-grid Indicators
+// driven by the live KWin tile splits.
 import QtQuick
 
 import "../../code/main.js" as Logic
