@@ -4,12 +4,13 @@
 // splits (hs/vs) via Logic.zoneRectFrac instead of static percentages, so the
 // mini diagrams track the real split while KWin re-tiles windows. Cells are
 // painted with Kirigami theme tokens — KWin's trimmed org.kde.plasma.core
-// module does not export FrameSvgItem to scripts.
+// module does not export FrameSvgItem to scripts. The root is a plain Item
+// (the upstream root is a transparent Rectangle that paints nothing).
 import QtQuick
 
 import "../../code/main.js" as Logic
 
-Rectangle {
+Item {
     id: indicator
 
     property int activeZone: -1
@@ -18,16 +19,11 @@ Rectangle {
     property real vs: 0.5
 
     // Sized by the Selector delegate (cardW/cardH).
-    color: "transparent"
 
     Repeater {
-        id: indicators
-
         model: zones
 
         Item {
-            id: zone
-
             property var frac: Logic.zoneRectFrac(modelData.id, indicator.hs, indicator.vs)
 
             x: frac.fx * indicator.width

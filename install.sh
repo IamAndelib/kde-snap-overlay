@@ -9,24 +9,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_ID="kde-snap-overlay"
 
-if command -v kpackagetool6 >/dev/null 2>&1; then
-    KPACKAGE="kpackagetool6"
-    KWRITE="kwriteconfig6"
-    QDBUS="$(command -v qdbus6 || command -v qdbus-qt6 || command -v qdbus || true)"
-elif command -v kpackagetool5 >/dev/null 2>&1; then
-    KPACKAGE="kpackagetool5"
-    KWRITE="kwriteconfig5"
-    QDBUS="$(command -v qdbus5 || command -v qdbus || true)"
-    echo "Note: only Plasma 5 tooling found. This script targets Plasma 6; some QML APIs may not work on Plasma 5." >&2
-else
-    echo "Error: neither kpackagetool6 nor kpackagetool5 found on PATH." >&2
-    exit 1
-fi
+# The script uses Qt 6 / KWin 6 APIs only, so Plasma 5 is not supported.
+KPACKAGE="kpackagetool6"
+KWRITE="kwriteconfig6"
+for tool in "$KPACKAGE" "$KWRITE"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Error: $tool not found on PATH (KDE Plasma 6 is required)." >&2
+        exit 1
+    fi
+done
+QDBUS="$(command -v qdbus6 || command -v qdbus-qt6 || command -v qdbus || true)"
 
-if ! command -v "$KWRITE" >/dev/null 2>&1; then
-    echo "Error: $KWRITE not found on PATH." >&2
-    exit 1
-fi
+# Whether the package is installed. grep reads the whole list on purpose:
+# with pipefail, an early-exiting `grep -q` can SIGPIPE kpackagetool and
+# make the pipeline report "not installed".
+is_installed() {
+    "$KPACKAGE" --type KWin/Script --list 2>/dev/null | grep -x "$PKG_ID" >/dev/null
+}
 
 reconfigure_kwin() {
     if [ -n "$QDBUS" ]; then
@@ -43,7 +42,7 @@ do_install() {
     cp -r "$SCRIPT_DIR/metadata.json" "$SCRIPT_DIR/contents" "$STAGE_DIR/"
 
     echo ">>> Installing KWin script package..."
-    if "$KPACKAGE" --type KWin/Script --list 2>/dev/null | grep -qx "$PKG_ID"; then
+    if is_installed; then
         "$KPACKAGE" --type KWin/Script --upgrade "$STAGE_DIR"
     else
         "$KPACKAGE" --type KWin/Script --install "$STAGE_DIR"
@@ -57,7 +56,7 @@ do_install() {
 
     echo
     echo "Done! To verify:"
-    echo "  $QDBUS org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded $PKG_ID"
+    echo "  ${QDBUS:-qdbus6} org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded $PKG_ID"
     echo
     echo "You can also toggle it in System Settings -> Window Management -> KWin Scripts."
 }
@@ -67,7 +66,7 @@ do_uninstall() {
     "$KWRITE" --file kwinrc --group Plugins --key "${PKG_ID}Enabled" false
 
     echo ">>> Removing KWin script package..."
-    if "$KPACKAGE" --type KWin/Script --list 2>/dev/null | grep -qx "$PKG_ID"; then
+    if is_installed; then
         "$KPACKAGE" --type KWin/Script --remove "$PKG_ID"
     else
         echo ">>> Package not installed; skipping removal."

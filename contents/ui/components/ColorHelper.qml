@@ -12,14 +12,6 @@ Item {
         return brightness === Kirigami.ColorUtils.Light ? "light" : "dark";
     }
 
-    property var backgroundColor: {
-        if (theme === "light")
-            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "white", 0.45);
-
-        if (theme === "dark")
-            return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.30);
-    }
-
     property var buttonColor: {
         if (theme === "light")
             return Kirigami.ColorUtils.tintWithAlpha(Kirigami.Theme.backgroundColor, "black", 0.15);

@@ -1,3 +1,5 @@
+.pragma library
+
 // The three combined layouts shown in the popup, KZones-style. Each layout is
 // one diagram; hovering one of its zones snaps the window to that zone.
 // Zone geometry is resolved live from the current KWin tile-grid splits
@@ -29,11 +31,18 @@ var LAYOUTS = [
     }
 ];
 
-var ZONE_IDS = [
-    "left", "right",
-    "top", "bottom",
-    "topLeft", "topRight", "bottomLeft", "bottomRight"
-];
+// Lookups derived once from LAYOUTS: every zone id in layout order (the
+// hit-test order), and per zone its KWin slot, owning layout index and
+// index within that layout.
+var ZONE_IDS = [];
+var ZONES = {};
+for (var li = 0; li < LAYOUTS.length; li++) {
+    for (var zi = 0; zi < LAYOUTS[li].zones.length; zi++) {
+        var z = LAYOUTS[li].zones[zi];
+        ZONE_IDS.push(z.id);
+        ZONES[z.id] = { slot: z.slot, layout: li, index: zi };
+    }
+}
 
 // Screen-area fractions of a zone given the current grid splits.
 function zoneRectFrac(zoneId, hs, vs) {
@@ -50,55 +59,22 @@ function zoneRectFrac(zoneId, hs, vs) {
     }
 }
 
-var ZONE_SLOT = {};
-for (var li = 0; li < LAYOUTS.length; li++) {
-    for (var zi = 0; zi < LAYOUTS[li].zones.length; zi++) {
-        var z = LAYOUTS[li].zones[zi];
-        ZONE_SLOT[z.id] = z.slot;
-    }
-}
-
-// Compute the popup size for the given number of cards and card metrics.
-function popupSize(nCards, cardW, cardH, gap, pad) {
-    var contentW = nCards * cardW + (nCards - 1) * gap;
-    return { width: contentW + 2 * pad, height: cardH + 2 * pad };
-}
-
 // Index of a zone within its layout, or -1 if it is not in that layout.
 function zoneIndexInLayout(layoutId, zoneId) {
-    for (var i = 0; i < LAYOUTS.length; i++) {
-        if (LAYOUTS[i].id === layoutId) {
-            for (var j = 0; j < LAYOUTS[i].zones.length; j++) {
-                if (LAYOUTS[i].zones[j].id === zoneId) {
-                    return j;
-                }
-            }
-        }
-    }
-    return -1;
+    var zone = ZONES[zoneId];
+    return zone && LAYOUTS[zone.layout].id === layoutId ? zone.index : -1;
 }
 
 // KWin slot that applies a zone.
 function zoneSlot(zoneId) {
-    return ZONE_SLOT[zoneId] || "";
+    var zone = ZONES[zoneId];
+    return zone ? zone.slot : "";
 }
 
 // Screen-space rectangle of a zone's mini render inside the popup.
 function zoneRectInPopup(zoneId, popupX, popupY, cardW, cardH, gap, pad, hs, vs) {
-    var li = 0;
-    for (var i = 0; i < LAYOUTS.length; i++) {
-        var found = -1;
-        for (var j = 0; j < LAYOUTS[i].zones.length; j++) {
-            if (LAYOUTS[i].zones[j].id === zoneId) {
-                found = j;
-                break;
-            }
-        }
-        if (found !== -1) {
-            li = i;
-            break;
-        }
-    }
+    var zone = ZONES[zoneId];
+    var li = zone ? zone.layout : 0;
     var f = zoneRectFrac(zoneId, hs, vs);
     var cardX = popupX + pad + li * (cardW + gap);
     var cardY = popupY + pad;
@@ -119,16 +95,4 @@ function hitTestZones(posX, posY, popupX, popupY, cardW, cardH, gap, pad, hs, vs
         }
     }
     return "";
-}
-// KWin QuickTileMode flag values (QuickTileFlag): Left=1, Right=2, Top=4,
-// Bottom=8, Maximize=16; corner modes are combinations. Stable across
-// KWin 5/6 — used with Window.quickTileGeometry() for exact native geometry.
-var ZONE_MODE = {
-    left: 1, right: 2, top: 4, bottom: 8,
-    topLeft: 5, topRight: 6, bottomLeft: 9, bottomRight: 10
-};
-
-// KWin QuickTileMode for a zone id, or 0 if unknown.
-function zoneMode(zoneId) {
-    return ZONE_MODE[zoneId] || 0;
 }

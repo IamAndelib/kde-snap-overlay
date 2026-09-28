@@ -78,7 +78,7 @@ PlasmaCore.Dialog {
     readonly property int cardH: 70
     readonly property int gap: 10
     readonly property int pad: 14
-    readonly property int popupH: Logic.popupSize(Logic.LAYOUTS.length, cardW, cardH, gap, pad).height
+    readonly property int popupH: cardH + 2 * pad
     // Visible sliver while the popup peeks: 15px matches the old design's
     // visible panel sliver (KZones showed 30px of selector = 15px of panel).
     readonly property int peekHeight: Math.min(Math.max(KWin.readConfig("peekHeight", 15), 10), popupH - 20)
@@ -97,9 +97,9 @@ PlasmaCore.Dialog {
     // KWin's shared Outline — which the interactive-move code hides on every
     // motion step of the drag, tearing the visual's platform window down —
     // this is our window, so it stays up without churn while the cursor
-    // moves. Screen-space rect of the highlighted zone, refreshed per poll
-    // tick from currentZoneRect().
-    property rect zoneOutlineRect: Qt.rect(0, 0, 0, 0)
+    // moves. Screen-space rect of the highlighted zone; a plain binding, so
+    // it only changes when the zone, the grid splits or the screen do.
+    readonly property rect zoneOutlineRect: zoneRect(highlightedZone)
 
     // Theme dialog frames have asymmetric shadow borders (heavier at the
     // bottom/right). Compensate the content insets by half the difference
@@ -129,15 +129,7 @@ PlasmaCore.Dialog {
     property string overlayZone: ""
     // Zone the cursor is currently resting on, awaiting the dwell timer.
     property string dwellCandidate: ""
-
-    onOverlayZoneChanged: {
-        // Diagnostic only: upstream switches zones by redrawing the scene
-        // instantly — there is no transition to trigger here anymore.
-        if (debugLog && overlayZone !== "" && zoneOverlay.engaged) {
-            console.info("[kde-snap-overlay] overlay switch ->", overlayZone,
-                "rect", JSON.stringify(zoneOutlineRect))
-        }
-    }
+    // Zone chosen on drop, applied by commitTimer once KWin has committed it.
     property string pendingZone: ""
     // Window being dragged right now; used to abort a stuck drag if it is
     // closed without ever finishing the move.
@@ -151,29 +143,23 @@ PlasmaCore.Dialog {
     property real hSplit: 0.5
     property real vSplit: 0.5
 
-    // The screen-space region the highlighted zone maps to, evaluated fresh
-    // on every call — a cached binding would go stale between highlight
-    // changes, since cursorPos is not a notifiable dependency. Resolution
-    // order: (1) KWin's own quickTileGeometry — the bit-exact geometry
-    // native snapping feeds its outline (probed, not exposed on every
-    // build); (2) the live grid splits measured from the real tile tree.
-    // Reads the dwell-approved overlayZone, not the instant highlight.
-    function currentZoneRect() {
-        if (dragWindow && overlayZone !== "") {
-            try {
-                if (dragWindow.quickTileGeometry) {
-                    var native = dragWindow.quickTileGeometry(
-                        Logic.zoneMode(overlayZone), Workspace.cursorPos)
-                    if (native && native.width > 0 && native.height > 0) {
-                        return Qt.rect(native.x, native.y, native.width, native.height)
-                    }
-                }
-            } catch (e) {
-                // Not scriptable here: fall through to the tile-tree splits.
-            }
+    onOverlayZoneChanged: {
+        // Diagnostic only: upstream switches zones by redrawing the scene
+        // instantly — there is no transition to trigger here.
+        if (debugLog && overlayZone !== "" && zoneOverlay.engaged) {
+            console.info("[kde-snap-overlay] overlay switch ->", overlayZone,
+                "rect", JSON.stringify(zoneOutlineRect))
         }
-        var f = Logic.zoneRectFrac(highlightedZone, hSplit, vSplit)
-        if (!f || (f.fw === 0 && f.fh === 0)) {
+    }
+
+    // The screen-space region a zone maps to on the drag's screen, from the
+    // grid splits measured in KWin's live tile tree (splitsFromTileTree).
+    // Window.quickTileGeometry() — what native snapping uses — is not
+    // scriptable (protected, not Q_INVOKABLE), so the splits are the exact
+    // source available to scripts. Zero rect for "" (no zone).
+    function zoneRect(zoneId) {
+        var f = Logic.zoneRectFrac(zoneId, hSplit, vSplit)
+        if (f.fw === 0 && f.fh === 0) {
             return Qt.rect(0, 0, 0, 0)
         }
         return Qt.rect(
@@ -193,8 +179,6 @@ PlasmaCore.Dialog {
     // can contribute, so floating windows never skew the grid. Falls back to
     // the default grid.
     function splitsFromTileTree() {
-        hSplit = 0.5
-        vSplit = 0.5
         var leftRights = []
         var rightLefts = []
         var topBottoms = []
@@ -399,14 +383,9 @@ PlasmaCore.Dialog {
             // fully retracted inside it.
             retracted = true
             hideTimer.stop()
-            // Overlay state starts clean every drag: no stale dwell
-            // candidate or outline rect carried over from a previous drag
-            // (a stale non-zero rect would let `engaged` read true before
-            // the dwell has placed a fresh rect).
-            dwellCandidate = ""
-            dwellTimer.stop()
-            overlayZone = ""
-            zoneOutlineRect = Qt.rect(0, 0, 0, 0)
+            // Zone state starts clean every drag: nothing carried over from
+            // a previous drag that never finished.
+            clearZoneState()
             refreshScreenArea()
             dragWindow = window
             // One grid read per drag: nothing re-tiles while a single drag
@@ -438,10 +417,13 @@ PlasmaCore.Dialog {
             pos.y >= rect.y && pos.y <= rect.y + rect.height
     }
 
-    // Global rect of the selector (panel + chrome) in its current state.
-    function selectorRect() {
-        var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
-        return Qt.rect(g.x, g.y, zoneSelector.width, zoneSelector.height)
+    // Drop every zone selection: card highlight, dwell and overlay.
+    function clearZoneState() {
+        highlightedZone = ""
+        dwellCandidate = ""
+        dwellTimer.stop()
+        overlayZone = ""
+        fullZone = false
     }
 
     function onTick() {
@@ -462,17 +444,22 @@ PlasmaCore.Dialog {
             }
             // Two-stage KZones-style reveal: peek sliver in the outer band,
             // full drop within showDistance of the top. Hovering the selector
-            // keeps it fully shown (the popup never slides out from under
-            // the cursor).
-            var hovering = pointInRect(pos, selectorRect())
+            // (panel + chrome) keeps it fully shown (the popup never slides
+            // out from under the cursor).
+            var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
+            var hovering = pointInRect(pos, Qt.rect(g.x, g.y, zoneSelector.width, zoneSelector.height))
             fullZone = hovering || (pos.y - screenArea.y) < showDistance
+            // Card-row origin exactly as the Selector lays it out: its
+            // insets are pad plus the shadow compensation on top/left.
+            var ox = g.x + compensateLeft
+            var oy = g.y + compensateTop
             // Selection is popup-area-only: only the cards highlight; the
-            // panel padding and the rest of the screen stay inert.
-            var hit = highlightedZone
-            if (fullZone) {
-                var g = zoneSelector.mapToGlobal(Qt.point(0, 0))
-                hit = Logic.hitTestZones(pos.x, pos.y, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
-            }
+            // panel padding and the rest of the screen stay inert, and
+            // leaving the panel (it retracts to the peek sliver) clears the
+            // zone, so a drop off the cards never snaps.
+            var hit = fullZone
+                ? Logic.hitTestZones(pos.x, pos.y, ox, oy, cardW, cardH, gap, pad, hSplit, vSplit)
+                : ""
             // Leave-margin hysteresis: a zone change — to another zone or
             // to "" — only commits once the cursor sits 6px clear of the
             // current zone's rect. The mini zone targets inside the cards
@@ -480,14 +467,12 @@ PlasmaCore.Dialog {
             // trembles 1-2px; without the margin, edge jitter on a single
             // poll tick would flip the zone state, tear down the overlay
             // and re-arm the dwell. Entering from "" stays instant;
-            // decisive moves commit within one tick. (var g is
-            // function-scoped and always assigned before this runs: hit can
-            // only differ from highlightedZone when fullZone was true.)
+            // decisive moves commit within one tick. The margin is well
+            // inside the panel padding, so it never holds a zone off-panel.
             if (hit !== highlightedZone && highlightedZone !== "") {
-                var r = Logic.zoneRectInPopup(highlightedZone, g.x, g.y, cardW, cardH, gap, pad, hSplit, vSplit)
+                var r = Logic.zoneRectInPopup(highlightedZone, ox, oy, cardW, cardH, gap, pad, hSplit, vSplit)
                 var margin = 6
-                if (pos.x >= r.x - margin && pos.x <= r.x + r.width + margin &&
-                    pos.y >= r.y - margin && pos.y <= r.y + r.height + margin) {
+                if (pointInRect(pos, Qt.rect(r.x - margin, r.y - margin, r.width + 2 * margin, r.height + 2 * margin))) {
                     hit = highlightedZone
                 }
             }
@@ -513,21 +498,12 @@ PlasmaCore.Dialog {
         } else {
             // Outside the band: fly the panel up off the top edge, then hide
             // the dialog once the animation has finished.
-            highlightedZone = ""
-            dwellCandidate = ""
-            dwellTimer.stop()
-            overlayZone = ""
-            fullZone = false
+            clearZoneState()
             retracted = true
             if (!hideTimer.running) {
                 hideTimer.restart()
             }
         }
-        // Own static zone outline: refresh the overlay's target rect. The
-        // rect is constant per zone (quickTileGeometry only varies per
-        // output/mode), so nothing churns while the cursor moves within a
-        // zone — the overlay stays perfectly static.
-        zoneOutlineRect = currentZoneRect()
     }
 
     // End the drag. flyOut=true: nothing was dropped on a layout, so the
@@ -538,17 +514,11 @@ PlasmaCore.Dialog {
         dragging = false
         pollTimer.stop()
         dragWindow = null
-        highlightedZone = ""
-        dwellCandidate = ""
-        dwellTimer.stop()
-        overlayZone = ""
-        zoneOutlineRect = Qt.rect(0, 0, 0, 0)
-        fullZone = false
+        clearZoneState()
+        retracted = true
         if (flyOut) {
-            retracted = true
             hideTimer.restart()
         } else {
-            retracted = true
             visible = false
         }
     }
@@ -559,7 +529,9 @@ PlasmaCore.Dialog {
         if (chosen !== "") {
             pendingZone = chosen
             // Delay so KWin has committed the drop before we snap the window.
-            commitTimer.start()
+            // restart(), not start(): start() is a no-op on a running timer,
+            // which would fire a quick second drop early.
+            commitTimer.restart()
         }
     }
 
@@ -595,11 +567,10 @@ PlasmaCore.Dialog {
         implicitWidth: zoneSelector.implicitWidth
         implicitHeight: zoneSelector.implicitHeight
 
-        // KZones-style selector (forked from KZones' Selector.qml): panel
-        // skin, three merged layout cards and the three-state topMargin
-        // (fully shown at the resting offset / peek sliver at the screen
-        // top / retracted) with the margin Behavior providing the drop
-        // animation.
+        // KZones-style selector (forked from KZones' Selector.qml): the row
+        // of three layout cards. The panel skin is this Dialog's own theme
+        // background, and the reveal (resting offset / peek sliver /
+        // retracted) is the Dialog's y Behavior above.
         Components.Selector {
             id: zoneSelector
 
@@ -620,7 +591,7 @@ PlasmaCore.Dialog {
         // KWin's own interactive-move code hides on every motion step of the
         // drag — this is our window: it stays up without churn while the
         // cursor moves, so the highlight reads as static. Position/size come
-        // from the same quickTileGeometry()-fed math KWin's outline gets.
+        // from zoneOutlineRect (the live tile-tree splits).
         PlasmaCore.Dialog {
             id: zoneOverlay
             // Engaged: the dwell-approved overlay should be on screen. The
@@ -686,27 +657,20 @@ PlasmaCore.Dialog {
                     }
                 }
 
-                // Highlight region, positioned by geometry; the visible
-                // rectangle just fills it (kzones zone pattern).
-                Item {
-                    id: highlightHost
+                // Highlight, positioned by the zone geometry. No geometry
+                // animation: FancyZones redraws zone switches by repainting
+                // instantly, so the highlight is placed directly at its new
+                // rect.
+                Rectangle {
+                    id: highlight
                     x: popup.zoneOutlineRect.x - popup.screenArea.x
                     y: popup.zoneOutlineRect.y - popup.screenArea.y
                     width: popup.zoneOutlineRect.width
                     height: popup.zoneOutlineRect.height
-
-                    Rectangle {
-                        id: highlight
-                        anchors.fill: parent
-                        radius: 12
-                        color: overlayHelper.overlayFill
-                        border.color: overlayHelper.overlayBorder
-                        border.width: 2
-                    }
-
-                    // No geometry animation: FancyZones redraws zone switches
-                    // by repainting instantly, so the highlight is placed
-                    // directly at its new rect.
+                    radius: 12
+                    color: overlayHelper.overlayFill
+                    border.color: overlayHelper.overlayBorder
+                    border.width: 2
                 }
 
                 Components.ColorHelper {
@@ -732,9 +696,8 @@ PlasmaCore.Dialog {
 
         // Dwell timer for the fullscreen overlay (FancyZones-style rest):
         // armed only when the candidate zone changes, so the cursor moving
-        // within one zone neither resets nor blocks the dwell. Re-reads the
-        // outline here so the overlay engages within the same beat instead
-        // of waiting for the next 16ms poll.
+        // within one zone neither resets nor blocks the dwell. The overlay
+        // engages within the same beat (zoneOutlineRect is a binding).
         Timer {
             id: dwellTimer
             interval: popup.highlightDelay
@@ -742,7 +705,6 @@ PlasmaCore.Dialog {
             onTriggered: {
                 if (dragging && dwellCandidate !== "") {
                     overlayZone = dwellCandidate
-                    zoneOutlineRect = currentZoneRect()
                     if (popup.debugLog) {
                         console.info("[kde-snap-overlay] overlay engage", overlayZone,
                             "rect", JSON.stringify(zoneOutlineRect))
@@ -758,9 +720,9 @@ PlasmaCore.Dialog {
             interval: 170
             repeat: false
             onTriggered: {
+                // retracted is already true whenever no drag is running.
                 if (!dragging) {
                     visible = false
-                    retracted = true
                 }
             }
         }
