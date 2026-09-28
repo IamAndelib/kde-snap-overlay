@@ -86,6 +86,49 @@ function zoneRectInPopup(zoneId, popupX, popupY, cardW, cardH, gap, pad, hs, vs)
     };
 }
 
+// Zone id of one of KWin's quick tiles, from its relativeGeometry: which
+// screen edges it touches identifies it (left touches left+top+bottom,
+// topLeft only left+top, ...), independent of KWin's child order. "" for
+// anything that is not a quick-tile shape.
+function quickZoneFor(x, y, w, h) {
+    var eps = 0.001;
+    var l = x < eps;
+    var t = y < eps;
+    var r = x + w > 1 - eps;
+    var b = y + h > 1 - eps;
+    if (l && t && b && !r) return "left";
+    if (r && t && b && !l) return "right";
+    if (l && r && t && !b) return "top";
+    if (l && r && b && !t) return "bottom";
+    if (l && t && !r && !b) return "topLeft";
+    if (r && t && !l && !b) return "topRight";
+    if (l && b && !r && !t) return "bottomLeft";
+    if (r && b && !l && !t) return "bottomRight";
+    return "";
+}
+
+// KWin's eight quick tiles, keyed by zone id, reached through one
+// quick-tiled window's tile, or null if that tile is not a quick tile.
+// Scripts see the tile tree through the Q_PROPERTYs `parent` and `tiles`.
+// The quick tiles are plain Tiles directly under the parentless
+// QuickRootTile; custom (Meta+T) layout tiles are CustomTiles, the only
+// tiles exposing `layoutDirection`, so they are rejected.
+function quickTilesOf(tile) {
+    if (!tile || tile.layoutDirection !== undefined) return null;
+    var root = tile.parent;
+    if (!root || root.parent) return null;
+    var kids = root.tiles;
+    if (!kids || kids.length !== ZONE_IDS.length) return null;
+    var tiles = {};
+    for (var i = 0; i < kids.length; i++) {
+        var g = kids[i] ? kids[i].relativeGeometry : null;
+        var id = g ? quickZoneFor(g.x, g.y, g.width, g.height) : "";
+        if (id === "" || tiles[id]) return null;
+        tiles[id] = kids[i];
+    }
+    return tiles;
+}
+
 // Return the zone id whose card zone contains the given position, or "".
 function hitTestZones(posX, posY, popupX, popupY, cardW, cardH, gap, pad, hs, vs) {
     for (var i = 0; i < ZONE_IDS.length; i++) {

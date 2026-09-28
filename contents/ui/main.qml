@@ -137,11 +137,20 @@ PlasmaCore.Dialog {
     // Output the drag happens on; the tile tree is per-output/per-desktop.
     property var dragScreen: null
 
-    // Current quick-tile grid splits (relative to screenArea), read from
-    // KWin's live tile tree at drag start so the highlight matches the space
-    // the native outline would fill. 0.5/0.5 = the default grid.
-    property real hSplit: 0.5
-    property real vSplit: 0.5
+    // KWin's eight quick tiles for the drag's screen and desktop, keyed by
+    // zone id (Logic.quickTilesOf), or null when no window there is
+    // quick-tiled. Found at drag start; kept after the drop so the cards do
+    // not jump back to the default grid during the fly-out.
+    property var quickTiles: null
+
+    // Current quick-tile grid splits (relative to the screen), read live
+    // from KWin's own tiles. relativeGeometry notifies, so a split that
+    // changes mid-drag (e.g. KWin resetting the grid when the dragged window
+    // leaves its tile) updates the cards and the overlay at once. 0.5/0.5 is
+    // the default grid — also what KWin resets to once nothing is
+    // quick-tiled.
+    readonly property real hSplit: tileEdge(quickTiles ? quickTiles.left : null, true)
+    readonly property real vSplit: tileEdge(quickTiles ? quickTiles.top : null, false)
 
     onOverlayZoneChanged: {
         // Diagnostic only: upstream switches zones by redrawing the scene
@@ -152,12 +161,29 @@ PlasmaCore.Dialog {
         }
     }
 
-    // The screen-space region a zone maps to on the drag's screen, from the
-    // grid splits measured in KWin's live tile tree (splitsFromTileTree).
-    // Window.quickTileGeometry() — what native snapping uses — is not
-    // scriptable (protected, not Q_INVOKABLE), so the splits are the exact
-    // source available to scripts. Zero rect for "" (no zone).
+    // Right (horizontal) or bottom edge of a quick tile's relative geometry;
+    // 0.5 when the tile is unavailable (none found, or destroyed with its
+    // output).
+    function tileEdge(tile, horizontal) {
+        var g = tile ? tile.relativeGeometry : null
+        if (!g) {
+            return 0.5
+        }
+        return horizontal ? g.x + g.width : g.y + g.height
+    }
+
+    // The screen-space region a zone snaps to: the zone's own quick tile's
+    // absoluteGeometry — exactly the rect KWin's quick tiling moves the
+    // window to (quick tiles have no padding). Without quick tiles, the
+    // default-grid math on the drag's screen. Zero rect for "" (no zone).
+    // (Window.quickTileGeometry() is not scriptable: protected, not
+    // Q_INVOKABLE.)
     function zoneRect(zoneId) {
+        var tile = quickTiles ? quickTiles[zoneId] : null
+        var g = tile ? tile.absoluteGeometry : null
+        if (g && g.width > 0 && g.height > 0) {
+            return Qt.rect(g.x, g.y, g.width, g.height)
+        }
         var f = Logic.zoneRectFrac(zoneId, hSplit, vSplit)
         if (f.fw === 0 && f.fh === 0) {
             return Qt.rect(0, 0, 0, 0)
@@ -169,110 +195,14 @@ PlasmaCore.Dialog {
             screenArea.height * f.fh)
     }
 
-    // Read the current quick-tile grid (hSplit/vSplit) straight from KWin's
-    // tile tree, reproducing what QuickRootTile::relayoutToFit() computes:
-    // the split follows the inner edge of the tiled windows. The quick slot
-    // grid itself is not scripting-accessible, so the tree is reached by
-    // scanning the stacking order for a window that reports an owning tile
-    // (window.tile); ascending to the tree root and reading its leaves gives
-    // exactly the partition KWin previews. Only windows KWin placed in a tile
-    // can contribute, so floating windows never skew the grid. Falls back to
-    // the default grid.
-    function splitsFromTileTree() {
-        var leftRights = []
-        var rightLefts = []
-        var topBottoms = []
-        var bottomTops = []
-
-        // A leaf rect contributes split values only if it is clearly
-        // anchored to the screen edges. Tile.absoluteGeometry is used so the
-        // measured edges sit exactly on the tile partition lines — layered
-        // windows cannot skew them. Custom tilings whose cells stay inset
-        // from the edges fall through to the default grid.
-        function consider(rect) {
-            if (!rect || rect.width < 50 || rect.height < 50) {
-                return
-            }
-            var sa = screenArea
-            var w = sa.width
-            var h = sa.height
-            var x1 = Math.max(rect.x, sa.x)
-            var y1 = Math.max(rect.y, sa.y)
-            var x2 = Math.min(rect.x + rect.width, sa.x + w)
-            var y2 = Math.min(rect.y + rect.height, sa.y + h)
-            if (x2 - x1 < 50 || y2 - y1 < 50) {
-                return
-            }
-            var relL = (x1 - sa.x) / w
-            var relT = (y1 - sa.y) / h
-            var relR = (x2 - sa.x) / w
-            var relB = (y2 - sa.y) / h
-            var hFrac = (x2 - x1) / w
-            var vFrac = (y2 - y1) / h
-
-            var epsH = 0.02
-            var epsV = 0.05
-            var left = relL < epsH
-            var right = relR > 1 - epsH
-            var top = relT < epsV
-            var bottom = relB > 1 - 0.005
-
-            if (vFrac >= 0.8 && hFrac <= 0.95) {
-                // Full-height column.
-                if (left && !right) {
-                    leftRights.push(relR)
-                } else if (right && !left) {
-                    rightLefts.push(relL)
-                }
-            } else if (hFrac >= 0.8 && vFrac <= 0.95) {
-                // Full-width row.
-                if (top && !bottom) {
-                    topBottoms.push(relB)
-                } else if (bottom && !top) {
-                    bottomTops.push(relT)
-                }
-            } else if (hFrac >= 0.2 && vFrac >= 0.2) {
-                // Corner.
-                if (left && top && !right && !bottom) {
-                    leftRights.push(relR)
-                    topBottoms.push(relB)
-                } else if (right && top && !left && !bottom) {
-                    rightLefts.push(relL)
-                    topBottoms.push(relB)
-                } else if (left && bottom && !right && !top) {
-                    leftRights.push(relR)
-                    bottomTops.push(relT)
-                } else if (right && bottom && !left && !top) {
-                    rightLefts.push(relL)
-                    bottomTops.push(relT)
-                }
-            }
-        }
-
-        // Exact partition lines from KWin's real quick-tile tree. Entry is
-        // the proven walk (rootTile() returns the custom-tiling root, not
-        // the tree the quick-grid splits live in); the measurement is the
-        // exact one: leaves' Tile.absoluteGeometry — KWin's own tile rects,
-        // so layered windows can never skew them the way window-frame
-        // unions did.
-        function addTileRects(tile) {
-            if (!tile) {
-                return
-            }
-            var kids = tile.childTiles
-            if (kids && kids.length > 0) {
-                for (var i = 0; i < kids.length; i++) {
-                    addTileRects(kids[i])
-                }
-                return
-            }
-            if (tile.absoluteGeometry) {
-                consider(tile.absoluteGeometry)
-            }
-        }
-
+    // Find KWin's quick tiles for the drag's screen and current desktop.
+    // Scripts cannot reach the quick-tile root directly (Workspace.rootTile()
+    // is the custom-tiling root), so it is reached through any window that
+    // is quick-tiled there: its tile's parent is the root holding all eight
+    // tiles. Windows in a custom (Meta+T) layout are skipped. null when no
+    // window qualifies.
+    function findQuickTiles() {
         try {
-            var root = null
             var wins = Workspace.stackingOrder
             var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
             for (var i = 0; i < wins.length; i++) {
@@ -295,35 +225,15 @@ PlasmaCore.Dialog {
                 if (dragScreen && (!w.output || w.output !== dragScreen)) {
                     continue
                 }
-                root = w.tile
-                break
-            }
-            if (root) {
-                var p = root.parentTile
-                while (p) {
-                    root = p
-                    p = root.parentTile
+                var tiles = Logic.quickTilesOf(w.tile)
+                if (tiles) {
+                    return tiles
                 }
-                addTileRects(root)
             }
         } catch (e) {
-            // Tile tree not reachable here: keep the default grid.
+            // Tile tree not reachable here: use the default grid.
         }
-
-        var hs = 0.5
-        var vs = 0.5
-        if (leftRights.length > 0) {
-            hs = Math.max.apply(null, leftRights)
-        } else if (rightLefts.length > 0) {
-            hs = Math.min.apply(null, rightLefts)
-        }
-        if (topBottoms.length > 0) {
-            vs = Math.max.apply(null, topBottoms)
-        } else if (bottomTops.length > 0) {
-            vs = Math.min.apply(null, bottomTops)
-        }
-        hSplit = Math.min(0.9, Math.max(0.1, hs))
-        vSplit = Math.min(0.9, Math.max(0.1, vs))
+        return null
     }
 
     Component.onCompleted: {
@@ -388,12 +298,16 @@ PlasmaCore.Dialog {
             clearZoneState()
             refreshScreenArea()
             dragWindow = window
-            // One grid read per drag: nothing re-tiles while a single drag
-            // is in progress (tiling commits on drop), so the splits cannot
-            // go stale mid-drag. A snapped window being re-dragged is still
-            // in its tile, so the empty space it is leaving keeps being
-            // reflected.
-            splitsFromTileTree()
+            // Locate KWin's quick tiles once per drag (the tiles themselves
+            // are then read live: hSplit/vSplit/zoneOutlineRect bind to them).
+            // A re-dragged snapped window is still in its tile at this point,
+            // so it can serve as the way in.
+            quickTiles = findQuickTiles()
+            if (debugLog) {
+                console.info("[kde-snap-overlay] grid h=" + hSplit.toFixed(3),
+                    "v=" + vSplit.toFixed(3),
+                    "source=" + (quickTiles ? "quick-tiles" : "default"))
+            }
             dragging = true
             // KZones' show(): visible at grab, so the first map after login
             // happens with seconds of slack instead of at the moment of
