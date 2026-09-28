@@ -28,7 +28,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.7.1.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)):
+Grab `kde-snap-overlay-1.7.1.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)); see the [changelog](CHANGELOG.md) for what's new:
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -41,6 +41,8 @@ git clone https://github.com/IamAndelib/kde-snap-overlay.git
 cd kde-snap-overlay
 ./install.sh
 ```
+
+When upgrading, log out and back in afterwards — KWin can keep running the old version of a loaded script until the session ends.
 
 ### Option C: manual
 
@@ -74,7 +76,7 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | `highlightDelay`     | 150     | 0–500 | Rest (ms) the cursor must hold on one layout before the fullscreen zone overlay engages. The popup cards highlight instantly either way; `0` engages the overlay instantly (FancyZones' own behavior) |
 | `overlayFadeIn`      | 200     | 0–1000 | Fade-in duration (ms) of the zone overlay — FancyZones' 200ms linear alpha ramp, the overlay's only animation |
 | `highlightOpacity`   | 50      | 5–100 | Opacity (%) of the overlay's accent fill (FancyZones' highlightOpacity); the border stays near-opaque |
-| `debugLog`           | false   | — | Log the overlay state machine (engage/switch/disengage/map) to the journal: `journalctl --user -b \| grep kde-snap-overlay` |
+| `debugLog`           | false   | — | Log diagnostics (grid source per drag/screen, overlay engage/switch/map, skipped snaps) to the journal: `journalctl --user -b \| grep kde-snap-overlay` |
 
 ```sh
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationDistance 150
@@ -110,7 +112,9 @@ qdbus6 org.kde.KWin /KWin reconfigure
 - The snap preview is **our own static overlay window** (v1.2.1's pattern): a fullscreen click-through OSD dialog hosting an accent highlight positioned by zone geometry. KWin's shared Outline is hidden by the interactive-move code on every pointer motion event during a drag — and every hide tears its visual's platform window down — so driving that shared outline can only flicker (settle-based re-show) or ghost (per-movement re-show). Our own window stays perfectly static while the cursor moves.
 - The overlay follows **FancyZones' (MIT) animation model, forked exactly**: the popup cards highlight instantly, but the fullscreen zone overlay only engages after the cursor rests `highlightDelay` on one layout — sweeping across the cards never pops the overlay window. Its show is a 200ms linear fade (FancyZones' `FadeInDurationMillis`) — the overlay's only animation: zone switches redraw instantly and hiding is instant, exactly like upstream's `ZonesOverlay` (which never animates zone transitions or hide). The fill is drawn at `highlightOpacity` (FancyZones' default 50%). Drop semantics are untouched: a quick flick-and-drop still snaps from the *instant* hover zone, the dwell gates only the visuals.
 - The preview geometry is **KWin's own quick tile**: through any quick-tiled window on the screen (its `tile`, whose `parent` is the quick-tile root holding all eight `tiles`), the overlay shows the target tile's exact `absoluteGeometry` and the card diagrams use its live split lines — resized splits, and KWin re-balancing the grid mid-drag, are reflected immediately. With nothing quick-tiled, KWin's grid is back at its default 50/50, which is what the preview shows. The overlay shows **where KWin will put the window** — the tile — even if a floating window overlaps that space. (`Window.quickTileGeometry()` and the quick-tile root are not exposed to scripts directly.)
-- On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first.
+- On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first. Those slots act on the active window, so a window moved without being activated (Meta+drag) is activated first — and if it can't be, nothing is tiled rather than the wrong window.
+- Drops KWin handles itself are left alone: cancelling the move with **Escape** puts the window back as usual, and KWin's own edge tiling/maximize or Shift-drop custom tiling is never overridden.
+- **Multi-monitor**: the popup, trigger band and preview follow the screen under the cursor during the drag (and the current virtual desktop, if it switches mid-drag).
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme
@@ -126,7 +130,6 @@ The popup's panel is the Plasma dialog's default theme background (theme translu
 ## Limitations
 
 - Mouse drags only (no keyboard shortcuts).
-- Single monitor only for now (the trigger area/popup follow the screen under the cursor at drag start).
 
 ## License
 

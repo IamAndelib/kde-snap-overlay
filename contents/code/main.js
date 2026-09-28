@@ -44,6 +44,17 @@ for (var li = 0; li < LAYOUTS.length; li++) {
     }
 }
 
+// A config number clamped to [lo, hi]. A non-numeric value (e.g. a typo
+// written with kwriteconfig6) falls back to the default instead of turning
+// the setting into NaN.
+function clampNumber(value, fallback, lo, hi) {
+    var n = Number(value);
+    if (!isFinite(n)) {
+        n = fallback;
+    }
+    return Math.min(Math.max(n, lo), hi);
+}
+
 // Screen-area fractions of a zone given the current grid splits.
 function zoneRectFrac(zoneId, hs, vs) {
     switch (zoneId) {

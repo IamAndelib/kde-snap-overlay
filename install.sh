@@ -42,8 +42,10 @@ do_install() {
     cp -r "$SCRIPT_DIR/metadata.json" "$SCRIPT_DIR/contents" "$STAGE_DIR/"
 
     echo ">>> Installing KWin script package..."
+    UPGRADED=false
     if is_installed; then
         "$KPACKAGE" --type KWin/Script --upgrade "$STAGE_DIR"
+        UPGRADED=true
     else
         "$KPACKAGE" --type KWin/Script --install "$STAGE_DIR"
     fi
@@ -59,6 +61,11 @@ do_install() {
     echo "  ${QDBUS:-qdbus6} org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded $PKG_ID"
     echo
     echo "You can also toggle it in System Settings -> Window Management -> KWin Scripts."
+    if [ "$UPGRADED" = true ]; then
+        echo
+        echo "Upgraded: log out and back in to run the new version (KWin can keep a loaded"
+        echo "script's old code until the session ends)."
+    fi
 }
 
 do_uninstall() {
