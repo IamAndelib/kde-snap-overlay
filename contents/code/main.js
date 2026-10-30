@@ -150,3 +150,35 @@ function hitTestZones(posX, posY, popupX, popupY, cardW, cardH, gap, pad, hs, vs
     }
     return "";
 }
+
+// Where the popup sits outside its resting position, for a popup of size
+// popupW x popupH at x = popupX on the screen with full output geometry
+// `screen` (`others`: the other outputs' geometries). The reveal slides the
+// dialog in from above the screen's real top edge (retracted, then a peek
+// sliver); that hides it only while nothing is drawn above that edge, and
+// KWin paints a window on every output it overlaps. With another output
+// directly above the popup's spot (stacked monitors: a "shared" top edge)
+// there is no hidden room, so the dialog parks above every output and the
+// peek stage is skipped (peek = retracted). The real top, not the
+// MaximizeArea, is used so a retracted popup never covers a top panel.
+// `clearance` keeps the retracted dialog that far above the edge too: the
+// theme's shadow is drawn outside the window and would otherwise leave a
+// faint line along the top of the screen below.
+function revealPositions(screen, others, popupX, popupW, popupH, peekHeight, clearance) {
+    var shared = false;
+    var top = screen.y;
+    for (var i = 0; i < others.length; i++) {
+        var r = others[i];
+        top = Math.min(top, r.y);
+        if (r.x < popupX + popupW && r.x + r.width > popupX &&
+            r.y < screen.y && r.y + r.height > screen.y - popupH - clearance) {
+            shared = true;
+        }
+    }
+    var retracted = (shared ? top : screen.y) - popupH - clearance;
+    return {
+        shared: shared,
+        retracted: retracted,
+        peek: shared ? retracted : screen.y - popupH + peekHeight
+    };
+}

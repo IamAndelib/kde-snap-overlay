@@ -21,13 +21,17 @@ PlasmaCore.Dialog {
     // empty-map races and no manual setWidth/setHeight.
     // Reveal via window position (two-stage, KZones-style): retracted = fully
     // above the screen, peek = bottom sliver on-screen, expanded = resting
-    // offset below the top edge. The Behavior animates every transition and
-    // the fly-out is the retracted position plus a delayed hide.
+    // offset below the top edge (below any top panel). The Behavior animates
+    // every transition and the fly-out is the retracted position plus a
+    // delayed hide. Retracted and peek come from Logic.revealPositions: they
+    // hang off the screen's real top edge, and where another monitor sits
+    // above that edge the popup parks above every monitor and skips the
+    // peek and the slide, which would otherwise be drawn on that monitor.
     x: screenArea.x + Math.floor((screenArea.width - width) / 2)
-    y: retracted ? screenArea.y - height
-        : (fullZone ? screenArea.y + topGap
-                    : screenArea.y - height + peekHeight)
+    y: retracted ? reveal.retracted
+        : (fullZone ? screenArea.y + topGap : reveal.peek)
     Behavior on y {
+        enabled: !popup.reveal.shared && !popup.switchingScreen
         NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
     }
 
@@ -80,9 +84,23 @@ PlasmaCore.Dialog {
     // Visible sliver while the popup peeks: 15px matches the old design's
     // visible panel sliver (KZones showed 30px of selector = 15px of panel).
     readonly property int peekHeight: Logic.clampNumber(KWin.readConfig("peekHeight", 15), 15, 10, popupH - 20)
+    // Extra room above the edge for the retracted dialog: the theme shadow
+    // (Breeze: about 10px below the frame) is painted outside the window.
+    readonly property int shadowClearance: 40
 
     // ---- State ----
+    // The drag screen's MaximizeArea (without panels): the band, the resting
+    // popup, the overlay and the default-grid zones live in it.
     property rect screenArea: Qt.rect(0, 0, 1920, 1080)
+    // The drag screen's full output geometry and the other outputs'
+    // geometries: where the popup can hide (see revealPositions).
+    property rect screenGeometry: Qt.rect(0, 0, 1920, 1080)
+    property var otherScreens: []
+    // True while refreshScreenArea swaps those in: the popup then jumps to
+    // its place on the new screen instead of sliding there across others.
+    property bool switchingScreen: false
+    readonly property var reveal: Logic.revealPositions(screenGeometry, otherScreens,
+        x, width, height, peekHeight, shadowClearance)
     property bool dragging: false
     // Cursor within showDistance of the screen top: the selector is fully
     // expanded; hovering the selector also keeps it expanded (KZones).
@@ -131,6 +149,8 @@ PlasmaCore.Dialog {
     // once KWin has committed the drop.
     property string pendingZone: ""
     property var pendingWindow: null
+    // Screen the popup was on at that drop: the snap goes there.
+    property var pendingScreen: null
     // Set while a drop is being finished if KWin itself handled it — a
     // cancelled move (Escape) putting the window back, or KWin's own edge
     // tiling/maximize — so the popup never snaps on top of that.
@@ -211,7 +231,8 @@ PlasmaCore.Dialog {
     function findQuickTiles() {
         try {
             var wins = Workspace.stackingOrder
-            var desktopId = Workspace.currentDesktop ? Workspace.currentDesktop.id : null
+            var desktop = desktopFor(dragScreen)
+            var desktopId = desktop ? desktop.id : null
             for (var i = 0; i < wins.length; i++) {
                 var w = wins[i]
                 if (!w || !w.normalWindow || !w.tile) {
@@ -297,6 +318,25 @@ PlasmaCore.Dialog {
         return screenAt(pos) || (screens.length > 0 ? screens[0] : null)
     }
 
+    // The virtual desktop a screen shows. With per-output desktops each
+    // screen has its own; Workspace.currentDesktop is the *active* output's,
+    // and activating the dragged window makes that the window's output,
+    // which need not be the screen under the cursor. (Per-output desktops
+    // and currentDesktopForScreen both arrived in Plasma 6.7.)
+    function desktopFor(screen) {
+        try {
+            if (screen && Workspace.currentDesktopForScreen) {
+                var desktop = Workspace.currentDesktopForScreen(screen)
+                if (desktop) {
+                    return desktop
+                }
+            }
+        } catch (e) {
+            // Fall through.
+        }
+        return Workspace.currentDesktop
+    }
+
     // Re-query the client area (workspace geometry can change on monitor
     // hotplug, rotation or resolution change). Called at startup and on each
     // drag start so the band/popup/overlay always match the current screen.
@@ -305,9 +345,25 @@ PlasmaCore.Dialog {
         if (!screen) {
             return
         }
-        var area = Workspace.clientArea(KWin.MaximizeArea, screen, Workspace.currentDesktop)
-        if (area.width > 0 && area.height > 0) {
-            screenArea = Qt.rect(area.x, area.y, area.width, area.height)
+        var area = Workspace.clientArea(KWin.MaximizeArea, screen, desktopFor(screen))
+        var others = []
+        var screens = Workspace.screens
+        for (var i = 0; i < screens.length; i++) {
+            var o = screens[i].geometry
+            if (screens[i] !== screen && o) {
+                others.push(Qt.rect(o.x, o.y, o.width, o.height))
+            }
+        }
+        var g = screen.geometry
+        switchingScreen = true
+        try {
+            if (area.width > 0 && area.height > 0) {
+                screenArea = Qt.rect(area.x, area.y, area.width, area.height)
+            }
+            screenGeometry = Qt.rect(g.x, g.y, g.width, g.height)
+            otherScreens = others
+        } finally {
+            switchingScreen = false
         }
         dragScreen = screen
     }
@@ -367,6 +423,7 @@ PlasmaCore.Dialog {
         commitTimer.stop()
         pendingZone = ""
         pendingWindow = null
+        pendingScreen = null
         dragWindow = window
         dropHandled = false
         dragStartPos = Qt.point(window.x, window.y)
@@ -400,8 +457,12 @@ PlasmaCore.Dialog {
         }
     }
 
-    function onDesktopChanged() {
-        if (dragging) {
+    // KWin reports a desktop switch once per output whose desktop changed
+    // (all of them without per-output desktops). Only the drag screen's
+    // matters: retargeting on another output's would blink the overlay off
+    // and drop the selection for nothing.
+    function onDesktopChanged(previous, current, output) {
+        if (dragging && (!output || output === dragScreen)) {
             retarget()
         }
     }
@@ -541,6 +602,7 @@ PlasmaCore.Dialog {
         if (chosen !== "") {
             pendingZone = chosen
             pendingWindow = window
+            pendingScreen = dragScreen
             // Delay so KWin has committed the drop before we snap the window.
             // restart(), not start(): start() is a no-op on a running timer,
             // which would fire a quick second drop early.
@@ -555,6 +617,7 @@ PlasmaCore.Dialog {
             commitTimer.stop()
             pendingZone = ""
             pendingWindow = null
+            pendingScreen = null
         }
         if (dragging && window === dragWindow) {
             resetDrag(false)
@@ -564,8 +627,10 @@ PlasmaCore.Dialog {
     function onCommit() {
         var zone = pendingZone
         var window = pendingWindow
+        var screen = pendingScreen
         pendingZone = ""
         pendingWindow = null
+        pendingScreen = null
         // A new drag started meanwhile: the intent is stale.
         if (dragging || !window) {
             return
@@ -587,7 +652,30 @@ PlasmaCore.Dialog {
             }
             return
         }
+        // KWin quick-tiles on the output under the window's centre
+        // (Window::handleQuickTileShortcut), but the popup, and so the zone
+        // preview the user dropped on, follows the cursor. A wide window
+        // grabbed far off-centre can have its centre on another monitor.
+        moveToScreen(window, screen)
         Workspace[slot]()
+    }
+
+    // Send a window whose centre is not on `screen` there (if that screen is
+    // still connected). Window::sendToOutput keeps its relative position and
+    // ends with finishInteractiveOutputChange, so with per-output desktops
+    // the window also joins the desktop the new output shows, just as after
+    // a drag across outputs.
+    function moveToScreen(window, screen) {
+        var g = window.frameGeometry
+        if (!screen || !g || !Workspace.sendClientToScreen
+            || Workspace.screens.indexOf(screen) < 0
+            || screenAt(Qt.point(g.x + g.width / 2, g.y + g.height / 2)) === screen) {
+            return
+        }
+        if (debugLog) {
+            console.info("[kde-snap-overlay] window centre off the drop screen, sending it to", screen.name)
+        }
+        Workspace.sendClientToScreen(window, screen)
     }
 
     // Dialog's default property only accepts Items, so all UI and non-Item

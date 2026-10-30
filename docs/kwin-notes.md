@@ -58,6 +58,21 @@ X11 moves are synchronous too.
 
 **`Workspace.activeWindow`** is writable: `WorkspaceWrapper::setActiveWindow` calls `Workspace::activateWindow`. Activation is synchronous on Wayland; on X11 it may not be, in which case `onCommit` skips rather than tiling the wrong window.
 
+## Multiple outputs
+
+Verified in `Plasma/6.7` and in the real-KWin test bed (`tests/kwin`).
+
+**Which output a snap lands on:** `Window::handleQuickTileShortcut` tiles at `moveResizeGeometry().center()`, and `Window::setMoveResizeGeometry` sets the move output to `outputAt(geometry centre)`. So a quick-tile slot tiles on the output under the **window's centre**, not the cursor's. A wide window grabbed far off-centre can have its centre on another monitor than the cursor (and our popup). `onCommit` therefore calls `Workspace.sendClientToScreen` first (`Window::sendToOutput`: `moveToArea` keeps the relative position, so the centre lands on the new output, and `moveResizeGeometry` updates synchronously).
+
+**Per-output virtual desktops** (new in 6.7, `[Windows] PerOutputVirtualDesktops`):
+- `Workspace.currentDesktop` is the *active output's* desktop. Pointer motion makes the output under the cursor active (`PointerInputRedirection::updatePosition`), but activating a window makes *its* output active (`Workspace::setActiveWindow`). Use `Workspace.currentDesktopForScreen(output)` (6.7+, absent in 6.6).
+- Moving a window to another output swaps the old output's desktop for the new output's (`Window::finishInteractiveOutputChange`; skipped if the window is already on the new one). It runs after interactive moves *and* at the end of `Window::sendToOutput`, so `Workspace.sendClientToScreen` needs no desktop handling from the script.
+- `currentDesktopChanged(previous, current, output)` is emitted once per output whose desktop changed; without per-output desktops, once for every output.
+
+**Painting:** KWin draws a window, internal windows included, on every output its geometry overlaps (its bounding rect, so the theme shadow outside the frame counts: about 10 px below a Breeze dialog). "Above the top edge" only hides the popup when no output is there: monitors stacked vertically, or a top panel (MaximizeArea starts below it), would show it. See `Logic.revealPositions`.
+
+**Placement in the test bed:** `--virtual --output-count N` lays outputs out left to right at the given size; `kde_output_management_v2` moves, rescales and disables them at runtime. KWin 6.7 announces output devices through `kde_output_device_registry_v2.output` (a server-created `new_id`), which pywayland cannot receive, hence `tests/kwin/outputctl.c`.
+
 ## Other scripting facts
 - `Workspace.cursorPos` notifies (`cursorPosChanged`), but the script polls every 16 ms by design.
 - These signals exist in 6.4 and master: `windowAdded`, `windowRemoved`, `currentDesktopChanged` and `screensChanged` on Workspace; `frameGeometryChanged`, `requestedTileChanged`, `tileChanged`, `maximizedAboutToChange`, `quickTileModeChanged` and `interactiveMoveResize{Started,Stepped,Finished}` on Window.
