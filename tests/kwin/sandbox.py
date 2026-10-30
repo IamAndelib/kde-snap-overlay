@@ -14,8 +14,9 @@ nothing reaches the user's real session or config. Inside it:
   print JSON into KWin's log;
 - screenshots come from KWin's ScreenShot2 D-Bus interface.
 
-Run inside the dev container only (needs kwin, pywayland, gcc, wayland-devel,
-dbus-python): python3 -I tests/kwin/scenarios.py
+Run inside the dev container only (dev/setup-container.sh installs what it
+needs; missing_requirements() lists anything absent). Usage: see
+tests/kwin/README.md.
 """
 
 import json
@@ -37,7 +38,25 @@ PKG_ID = "kde-snap-overlay"
 QDBUS = shutil.which("qdbus-qt6") or shutil.which("qdbus6") or "/usr/lib64/qt6/bin/qdbus"
 QML = shutil.which("qml") or "/usr/lib64/qt6/bin/qml"
 BTN_LEFT = 0x110
+KEY_ESC = 1
 KEY_LEFTMETA = 125
+PROTOCOLS = "/usr/share/plasma-wayland-protocols/"
+
+
+def missing_requirements():
+    """Tools and files the sandbox needs that this system lacks."""
+    missing = [tool for tool in ("kwin_wayland", "kpackagetool6", "dbus-daemon", "gcc", "wayland-scanner")
+               if not shutil.which(tool)]
+    missing += [path for path in (QDBUS, QML) if not os.access(path, os.X_OK)]
+    missing += [PROTOCOLS + xml for xml in ("fake-input.xml", "kde-output-device-v2.xml",
+                                            "kde-output-management-v2.xml")
+                if not os.path.exists(PROTOCOLS + xml)]
+    for module in ("pywayland", "dbus"):
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append("python module " + module)
+    return missing
 
 
 class SandboxError(RuntimeError):
@@ -70,15 +89,15 @@ def _write_png(path, raw, width, height, stride):
 def build_outputctl(out_dir):
     """Compile tests/kwin/outputctl.c (see there for why it is C)."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    proto = "/usr/share/plasma-wayland-protocols/"
     sources = [str(HERE / "outputctl.c")]
     for xml in ("kde-output-device-v2", "kde-output-management-v2"):
-        subprocess.run(["wayland-scanner", "client-header", proto + xml + ".xml",
+        subprocess.run(["wayland-scanner", "client-header", PROTOCOLS + xml + ".xml",
                         str(out_dir / (xml + "-client-protocol.h"))], check=True)
-        subprocess.run(["wayland-scanner", "private-code", proto + xml + ".xml",
+        subprocess.run(["wayland-scanner", "private-code", PROTOCOLS + xml + ".xml",
                         str(out_dir / (xml + "-protocol.c"))], check=True)
         sources.append(str(out_dir / (xml + "-protocol.c")))
     binary = out_dir / "kso-outputctl"
+    # -lm: wl_fixed_from_double() calls round() in current libwayland.
     subprocess.run(["gcc", "-O1", "-Wall", "-Wextra", "-Werror", "-I", str(out_dir), "-o", str(binary),
                     *sources, "-lwayland-client", "-lm"], check=True)
     return binary
@@ -97,7 +116,7 @@ class Wayland:
         (pkg / "__init__.py").touch()
         subprocess.run([sys.executable, "-m", "pywayland.scanner", "-i",
                         "/usr/share/wayland/wayland.xml",
-                        "/usr/share/plasma-wayland-protocols/fake-input.xml",
+                        PROTOCOLS + "fake-input.xml",
                         "-o", str(pkg)], check=True, capture_output=True)
         sys.path.insert(0, str(proto_dir))
         from pywayland.client import Display  # noqa: E402
@@ -142,7 +161,7 @@ class Wayland:
 
 class Sandbox:
     def __init__(self, outputs=2, width=1920, height=1080, script_config=None,
-                 windows_config=None, desktops=1, keep=False, label="sandbox"):
+                 windows_config=None, desktops=1, keep=False):
         self.outputs = outputs
         self.width = width
         self.height = height
@@ -150,7 +169,6 @@ class Sandbox:
         self.windows_config = windows_config or {}
         self.desktops = desktops
         self.keep = keep
-        self.label = label
         self.procs = []
         self.clients = []
         self.pointer = None
@@ -390,8 +408,11 @@ class Sandbox:
 
     # ---- windows ------------------------------------------------------------
 
-    def open_window(self, caption, x, y, w, h):
-        p = subprocess.Popen([QML, str(HERE / "window.qml"), "--", caption], env=self._env(),
+    def open_window(self, caption, x, y, w, h, fixed_size=False):
+        """A test window (window.qml); fixed_size makes it 800x500 and not
+        resizable."""
+        args = ["--fixed-size"] if fixed_size else []
+        p = subprocess.Popen([QML, str(HERE / "window.qml"), "--", *args, caption], env=self._env(),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.clients.append(p)
         self._wait(lambda: self.probe("return !!win(%s)" % json.dumps(caption))["result"],
@@ -438,11 +459,6 @@ class Sandbox:
             if w["caption"] == caption:
                 return w
         return None
-
-    def osds(self):
-        return [w for w in self.state()["windows"] if w["osd"]]
-
-    # ---- pointer --------------------------------------------------------------
 
     def drag(self, path, step_ms=16, steps=12, hold_ms=400, release=True, meta=False):
         """Press at path[0], glide through each later point in `steps`

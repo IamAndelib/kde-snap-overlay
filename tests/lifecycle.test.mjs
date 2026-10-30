@@ -33,6 +33,30 @@ function extract(src) {
     return out
 }
 const fns = extract(qml)
+
+// The popup's metrics and config settings, taken verbatim from main.qml's
+// `readonly property` declarations (continuation lines included), in an
+// order that satisfies their dependencies.
+const SETTINGS = ['cardW', 'cardH', 'gap', 'pad', 'popupH', 'activationDistance', 'topGap', 'showDistance',
+    'edgeGapRatio', 'highlightDelay', 'overlayFadeIn', 'highlightOpacity', 'peekHeight', 'shadowClearance']
+function extractSettings(src) {
+    const found = {}
+    const lines = src.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+        const m = /^    readonly property \w+ (\w+): (.*)$/.exec(lines[i])
+        if (!m || !SETTINGS.includes(m[1])) continue
+        let expr = m[2]
+        while (i + 1 < lines.length && /^ {5,}\S/.test(lines[i + 1])) expr += ' ' + lines[++i].trim()
+        found[m[1]] = expr.replace(/KWin\.readConfig/g, 'readConfig')
+    }
+    return SETTINGS.map((n) => {
+        assert.ok(found[n], 'harness drift: main.qml no longer declares ' + n)
+        return `var ${n} = ${found[n]};`
+    }).join('\n')
+}
+const settingsSrc = extractSettings(qml)
+// Every top-level function and var of main.js, as the QML import `Logic`.
+const logicNames = [...logicSrc.matchAll(/^(?:function|var) (\w+)/gm)].map((m) => m[1])
 for (const n of ['startup', 'connectSignal', 'screenAt', 'screenForCursor', 'refreshScreenArea', 'connectWindow',
     'onDragStarted', 'retarget', 'onDesktopChanged', 'pointInRect', 'clearZoneState', 'onTick', 'resetDrag',
     'onDrop', 'onWindowRemoved', 'onCommit', 'findQuickTiles', 'zoneRect', 'tileEdge', 'desktopFor',
@@ -96,18 +120,12 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
     }
     const env = new Function('Workspace', 'KWin', 'Qt', 'console', 'timers', 'readConfig', `
         ${logicSrc}
-        var Logic = { LAYOUTS: LAYOUTS, zoneRectFrac: zoneRectFrac, zoneIndexInLayout: zoneIndexInLayout,
-                      zoneSlot: zoneSlot, zoneRectInPopup: zoneRectInPopup, hitTestZones: hitTestZones,
-                      quickTilesOf: quickTilesOf, clampNumber: clampNumber, revealPositions: revealPositions };
-        var pad = 14, cardW = 130, cardH = 70, gap = 10;
-        var activationDistance = Logic.clampNumber(readConfig("activationDistance", 150), 150, 100, 400);
-        var topGap = Logic.clampNumber(readConfig("topGap", 25), 25, 0, Math.max(activationDistance - (pad + cardH), 0));
-        var showDistance = Logic.clampNumber(readConfig("showDistance", 75), 75, topGap + 10,
-                                             Math.max(activationDistance - 10, topGap + 10));
-        var edgeGapRatio = Logic.clampNumber(readConfig("edgeGapRatio", 0.25), 0.25, 0, 0.5);
-        var highlightDelay = 150, debugLog = true, compensateLeft = 0, compensateTop = 0;
+        var Logic = { ${logicNames.map((n) => `${n}: ${n}`).join(', ')} };
+        var compensateLeft = 0, compensateTop = 0, cardInsetTop = 0;  // no dialog frame here
+        ${settingsSrc}
+        var debugLog = true;
         var screenArea = { x: 0, y: 0, width: 1920, height: 1080 };
-        var screenGeometry = { x: 0, y: 0, width: 1920, height: 1080 }, otherScreens = [], switchingScreen = false;
+        var screenGeometry = { x: 0, y: 0, width: 1920, height: 1080 }, otherScreens = [], placeInstantly = false;
         // edgeGap is a binding on screenArea in main.qml.
         Object.defineProperty(globalThis, 'edgeGap', { configurable: true,
             get: function () { return screenArea.width * edgeGapRatio } });
@@ -117,8 +135,8 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
         var dropHandled = false, dragStartPos = { x: 0, y: 0 }, dragWindow = null, dragScreen = null, quickTiles = null;
         var hSplit = 0.5, vSplit = 0.5;
         var pollTimer = timers.poll, commitTimer = timers.commit, dwellTimer = timers.dwell, hideTimer = timers.hide;
-        var zoneSelector = { width: 438, height: 98, mapToGlobal: function () {
-            return { x: screenArea.x + Math.floor((screenArea.width - 438) / 2), y: screenArea.y + topGap } } };
+        var zoneSelector = { width: 3 * cardW + 2 * gap + 2 * pad, height: popupH, mapToGlobal: function () {
+            return { x: screenArea.x + Math.floor((screenArea.width - this.width) / 2), y: screenArea.y + topGap } } };
         ${Object.values(fns).join('\n')}
         return { get: function (k) { return eval(k) }, startup: startup, onTick: onTick, onCommit: onCommit,
                  desktopFor: desktopFor };
@@ -133,47 +151,66 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
 
 let windowIds = 0
 function mkWindow(W, { x = 300, y = 300, width = 800, height = 500, output, desktops = null } = {}) {
-    const w = { id: ++windowIds, normalWindow: true, move: false, x, y, width, height,
+    const w = { id: ++windowIds, normalWindow: true, resizeable: true, move: false, x, y, width, height,
         output: output || W.screens[0], tile: null,
         onAllDesktops: !desktops, desktops: desktops || [],
         get frameGeometry() { return { x: this.x, y: this.y, width: this.width, height: this.height } },
         interactiveMoveResizeStarted: signal(), interactiveMoveResizeFinished: signal(),
-        requestedTileChanged: signal(), maximizedAboutToChange: signal(), frameGeometryChanged: signal() }
+        requestedTileChanged: signal(), maximizedAboutToChange: signal() }
     W.stackingOrder.push(w)
     return w
 }
 
-// Cursor over the topRight zone of the third (quadrants) card.
+// Two side-by-side 1920x1080 screens, A on the left.
+const twoScreens = () => [mkOutput('A', 0, 0, 1920, 1080), mkOutput('B', 1920, 0, 1920, 1080)]
+
+// Cursor over the topRight zone of the third (quadrants) card, on the
+// popup as main.qml lays it out on the current screen.
 function overTopRight(rt) {
+    const [pad, cardW, gap] = [rt.get('pad'), rt.get('cardW'), rt.get('gap')]
     const sa = rt.get('screenArea')
-    const gx = sa.x + Math.floor((sa.width - 438) / 2)
-    return { x: gx + 14 + 2 * 140 + 100, y: sa.y + rt.get('topGap') + 14 + 10 }
+    const gx = sa.x + Math.floor((sa.width - rt.get('zoneSelector').width) / 2)
+    return { x: gx + pad + 2 * (cardW + gap) + 100, y: sa.y + rt.get('topGap') + pad + 10 }
 }
 
-function dragOntoCard(env, w, { active = true } = {}) {
+// Start dragging `w` and hover the topRight zone. By default the drag
+// starts on screen A and moves the window to (700, 400); with `at`, it
+// starts with the cursor at `at` (on whichever screen that is) and moves
+// the window 40 px right. (A real drag always moves the window; one that
+// ends where it started is a cancel.)
+function dragOntoCard(env, w, { active = true, at = null } = {}) {
     const { rt, Workspace } = env
     if (active) Workspace._active = w
+    if (at) Workspace.cursorPos = at
     w.move = true
     w.interactiveMoveResizeStarted.emit()
-    Workspace.cursorPos = { x: 960, y: 600 }
-    w.x = 700
-    w.y = 400
-    w.frameGeometryChanged.emit()
+    if (at) {
+        w.x += 40
+    } else {
+        Workspace.cursorPos = { x: 960, y: 600 }
+        w.x = 700
+        w.y = 400
+    }
     Workspace.cursorPos = overTopRight(rt)
     rt.onTick()
     rt.onTick()
     assert.equal(rt.get('highlightedZone'), 'topRight')
 }
-// dragOntoCard on the screen under the current cursor position.
-function dragOntoCardOn(env, w) {
-    const { rt, Workspace } = env
-    Workspace._active = w
+
+// A 2400 px wide window on A, dragged by its part over B and dropped on
+// B's topRight zone with its centre (x 1500) still on A; then the commit.
+function dropWideWindowOnB(env, w) {
+    env.Workspace._active = w
+    w.x = 0
     w.move = true
     w.interactiveMoveResizeStarted.emit()
-    Workspace.cursorPos = overTopRight(rt)
-    rt.onTick()
-    rt.onTick()
-    assert.equal(rt.get('highlightedZone'), 'topRight')
+    env.Workspace.cursorPos = { x: 2500, y: 600 }
+    env.rt.onTick()
+    w.x = 300
+    env.Workspace.cursorPos = overTopRight(env.rt)
+    env.rt.onTick()
+    finish(w)
+    fireCommit(env)
 }
 
 // KWin's finish: move goes false, any restore/tiling happens, then the signal.
@@ -212,7 +249,7 @@ test('Escape cancel of a floating window (restored to its start position) does n
     const env = setup()
     const w = addWindow(env)
     dragOntoCard(env, w)
-    finish(w, () => { w.x = 300; w.y = 300; w.frameGeometryChanged.emit() }) // moveResize(initialGeometry)
+    finish(w, () => { w.x = 300; w.y = 300 }) // moveResize(initialGeometry)
     fireCommit(env)
     assert.deepEqual(env.calls, [])
 })
@@ -225,12 +262,41 @@ test('Escape cancel of a tiled / maximized window does not snap', () => {
         w.move = true
         w.interactiveMoveResizeStarted.emit()
         w[sig].emit() // untile/unmaximize on the first step: move still true, ignored
+        w.x = 900     // moved away, so only KWin's restore signal can stop the snap
         env.Workspace.cursorPos = overTopRight(env.rt)
         env.rt.onTick()
         finish(w, () => w[sig].emit()) // cancel restores tile/maximize with move false
         fireCommit(env)
         assert.deepEqual(env.calls, [], sig)
     }
+})
+
+// KWin tiles only resizable windows (Tile::manage) (tests/kwin: s_fixed_size_window).
+test('a window KWin cannot tile (not resizable) gets no popup', () => {
+    const env = setup()
+    const w = addWindow(env)
+    w.resizeable = false
+    env.Workspace._active = w
+    w.move = true
+    w.interactiveMoveResizeStarted.emit()
+    assert.equal(env.rt.get('dragging'), false)
+    assert.equal(env.rt.get('visible'), false)
+})
+
+// KWin starts a move after a press held still for startDragTime; Escape or
+// a release then leaves the window where it was (tests/kwin: s_escape_never_snaps).
+test('a held press released or cancelled in place over a card does not snap', () => {
+    const env = setup()
+    const w = addWindow(env)
+    env.Workspace._active = w
+    env.Workspace.cursorPos = overTopRight(env.rt)
+    w.move = true
+    w.interactiveMoveResizeStarted.emit()
+    env.rt.onTick()
+    assert.equal(env.rt.get('highlightedZone'), 'topRight')
+    finish(w)
+    fireCommit(env)
+    assert.deepEqual(env.calls, [])
 })
 
 test('mid-drag untile (move still true) does not suppress a normal drop', () => {
@@ -240,6 +306,7 @@ test('mid-drag untile (move still true) does not suppress a normal drop', () => 
     w.move = true
     w.interactiveMoveResizeStarted.emit()
     w.requestedTileChanged.emit()
+    w.x = 900
     env.Workspace.cursorPos = overTopRight(env.rt)
     env.rt.onTick()
     finish(w)
@@ -251,7 +318,7 @@ test('KWin repositioning elsewhere at finish (not the start position) still snap
     const env = setup()
     const w = addWindow(env)
     dragOntoCard(env, w)
-    finish(w, () => { w.x = 1234; w.frameGeometryChanged.emit() })
+    finish(w, () => { w.x = 1234 })
     fireCommit(env)
     assert.equal(env.calls.length, 1)
 })
@@ -341,39 +408,26 @@ test('multi-monitor: crossing to another screen retargets it; popup + snap work 
 // KWin quick-tiles on the output under the window's centre, the popup
 // follows the cursor (tests/kwin: s_wide_window_off_centre).
 test('multi-monitor: a window whose centre is off the drop screen is sent there, then tiled', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
+    const [A, B] = twoScreens()
     const env = setup({ screens: [A, B] })
     const w = addWindow(env, { width: 2400 })
-    env.Workspace._active = w
-    w.move = true
-    w.interactiveMoveResizeStarted.emit()
-    env.Workspace.cursorPos = { x: 2500, y: 600 }
-    env.rt.onTick()
-    w.x = 300                              // centre 1500: on A, cursor on B
-    env.Workspace.cursorPos = overTopRight(env.rt)
-    env.rt.onTick()
-    finish(w)
-    fireCommit(env)
+    dropWideWindowOnB(env, w)
     assert.deepEqual(env.calls, [{ send: 'B', window: w }, { slot: 'TopRight', window: w }])
     assert.equal(w.output, B)
 })
 
 test('multi-monitor: a window centred on the drop screen is not moved', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
+    const [A, B] = twoScreens()
     const env = setup({ screens: [A, B] })
     const w = addWindow(env, { output: B, x: 2300 })
-    env.Workspace.cursorPos = { x: 2500, y: 600 }
-    dragOntoCardOn(env, w)
+    dragOntoCard(env, w, { at: { x: 2500, y: 600 } })
     finish(w)
     fireCommit(env)
     assert.deepEqual(env.calls, [{ slot: 'TopRight', window: w }])
 })
 
 test('multi-monitor: drop screen unplugged before the commit: tiled where it is, not sent', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
+    const [A, B] = twoScreens()
     const env = setup({ screens: [A, B] })
     const w = addWindow(env)
     dragOntoCard(env, w)
@@ -388,53 +442,29 @@ test('multi-monitor: drop screen unplugged before the commit: tiled where it is,
 })
 
 test('per-output desktops: a window sent to the drop screen joins the desktop it shows', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
     const D3 = { id: 'd3' }
-    const env = setup({ screens: [A, B], perOutputDesktops: { A: D1, B: D2 } })
+    const env = setup({ screens: twoScreens(), perOutputDesktops: { A: D1, B: D2 } })
     const w = addWindow(env, { width: 2400, desktops: [D1, D3] })
-    env.Workspace._active = w
-    w.move = true
-    w.interactiveMoveResizeStarted.emit()
-    env.Workspace.cursorPos = { x: 2500, y: 600 }
-    env.rt.onTick()
-    w.x = 300
-    env.Workspace.cursorPos = overTopRight(env.rt)
-    env.rt.onTick()
-    finish(w)
-    fireCommit(env)
+    dropWideWindowOnB(env, w)
     assert.equal(env.calls[0].send, 'B')
     // KWin's own swap (finishInteractiveOutputChange): A's desktop for B's.
     assert.deepEqual(w.desktops, [D3, D2])
 })
 
 test('per-output desktops: a window already on the drop screen\'s desktop keeps all its desktops', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
-    const env = setup({ screens: [A, B], perOutputDesktops: { A: D1, B: D2 } })
+    const env = setup({ screens: twoScreens(), perOutputDesktops: { A: D1, B: D2 } })
     const w = addWindow(env, { width: 2400, desktops: [D1, D2] })
-    env.Workspace._active = w
-    w.move = true
-    w.interactiveMoveResizeStarted.emit()
-    env.Workspace.cursorPos = { x: 2500, y: 600 }
-    env.rt.onTick()
-    w.x = 300
-    env.Workspace.cursorPos = overTopRight(env.rt)
-    env.rt.onTick()
-    finish(w)
-    fireCommit(env)
+    dropWideWindowOnB(env, w)
     assert.equal(env.calls[0].send, 'B')
     assert.deepEqual(w.desktops, [D1, D2])
 })
 
 test('per-output desktops: the drag screen\'s own desktop is used, not the active output\'s', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
+    const [A, B] = twoScreens()
     const env = setup({ screens: [A, B], perOutputDesktops: { A: D1, B: D2 } })
     env.Workspace.clientAreaDesktops.length = 0
     const w = addWindow(env, { output: B, x: 2300 })
-    env.Workspace.cursorPos = { x: 2500, y: 600 }
-    dragOntoCardOn(env, w)
+    dragOntoCard(env, w, { at: { x: 2500, y: 600 } })
     assert.equal(env.rt.get('dragScreen'), B)
     assert.equal(env.Workspace.clientAreaDesktops.at(-1), D2)
     assert.equal(env.rt.desktopFor(B), D2)
@@ -455,8 +485,7 @@ test('desktop switch mid-drag retargets and clears the selection', () => {
 // KWin emits currentDesktopChanged(previous, current, output) per output
 // (tests/kwin: s_desktop_switch_other_monitor).
 test('desktop switch on another output mid-drag keeps the selection', () => {
-    const A = mkOutput('A', 0, 0, 1920, 1080)
-    const B = mkOutput('B', 1920, 0, 1920, 1080)
+    const [A, B] = twoScreens()
     const env = setup({ screens: [A, B] })
     const w = addWindow(env)
     dragOntoCard(env, w)
@@ -478,12 +507,24 @@ test('startup: a throwing window does not stop the others or windowAdded', () =>
     assert.equal(late.interactiveMoveResizeStarted.hs.length, 1)
 })
 
-test('bad config values fall back to defaults; valid ones clamp as before', () => {
-    const bad = runtime({ config: { activationDistance: 'abc', edgeGapRatio: 'x', topGap: NaN } }).rt
+test('config: defaults, fallback for non-numbers, clamping to each range', () => {
+    const d = runtime().rt
+    for (const [k, v] of Object.entries({ activationDistance: 150, topGap: 25, showDistance: 75, edgeGapRatio: 0.25,
+        highlightDelay: 150, overlayFadeIn: 200, highlightOpacity: 0.5, peekHeight: 15 })) {
+        assert.equal(d.get(k), v, k)
+    }
+    const bad = runtime({ config: { activationDistance: 'abc', edgeGapRatio: 'x', topGap: NaN, peekHeight: '' } }).rt
     assert.equal(bad.get('activationDistance'), 150)
     assert.equal(bad.get('edgeGapRatio'), 0.25)
     assert.equal(bad.get('topGap'), 25)
-    const ok = runtime({ config: { activationDistance: 999, showDistance: 5, topGap: 30 } }).rt
-    assert.equal(ok.get('activationDistance'), 400)
-    assert.equal(ok.get('showDistance'), 40)
+    assert.equal(bad.get('peekHeight'), 10, "'' is the number 0, clamped up")
+    const hi = runtime({ config: { activationDistance: 999, showDistance: 5, topGap: 30, highlightOpacity: 500,
+        peekHeight: 999, highlightDelay: -5 } }).rt
+    assert.equal(hi.get('activationDistance'), 400)
+    assert.equal(hi.get('showDistance'), 40, 'at least topGap + 10')
+    assert.equal(hi.get('highlightOpacity'), 1)
+    assert.equal(hi.get('peekHeight'), 78, 'popup height (98) - 20')
+    assert.equal(hi.get('highlightDelay'), 0)
+    // topGap keeps the card row inside the band: at most activationDistance - (pad + cardH).
+    assert.equal(runtime({ config: { activationDistance: 100, topGap: 90 } }).rt.get('topGap'), 16)
 })

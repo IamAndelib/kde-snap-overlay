@@ -4,8 +4,7 @@ Each scenario builds its own sandbox (tests/kwin/sandbox.py), drives real
 pointer drags and checks what KWin actually did: where the popup and the
 zone overlay were shown, and where the dropped window was tiled.
 
-Usage (inside the dev container):
-    python3 -I tests/kwin/scenarios.py [-k substring] [--shots DIR]
+Usage: see tests/kwin/README.md (python3 -I tests/kwin/scenarios.py --help).
 """
 
 import argparse
@@ -16,12 +15,24 @@ import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sandbox import Sandbox  # noqa: E402
+from sandbox import KEY_ESC, Sandbox, missing_requirements  # noqa: E402
 
+# The popup's geometry and default settings, as in contents/ui/main.qml.
 CARD_W, CARD_H, GAP = 130, 70, 10
 ROW_W = 3 * CARD_W + 2 * GAP
+TOP_GAP, PEEK = 25, 15
+# Each zone's card (main.js LAYOUTS) and its fractions of the card / screen
+# as (x0, x1, y0, y1), given the grid splits h and v (main.js zoneRectFrac).
 LAYOUT_OF = {"left": 0, "right": 0, "top": 1, "bottom": 1,
              "topLeft": 2, "topRight": 2, "bottomLeft": 2, "bottomRight": 2}
+
+
+def zone_frac(zone, h=0.5, v=0.5):
+    return {"left": (0, h, 0, 1), "right": (h, 1, 0, 1), "top": (0, 1, 0, v), "bottom": (0, 1, v, 1),
+            "topLeft": (0, h, 0, v), "topRight": (h, 1, 0, v),
+            "bottomLeft": (0, h, v, 1), "bottomRight": (h, 1, v, 1)}[zone]
+
+
 SHOTS = None
 
 
@@ -73,21 +84,32 @@ def zone_point(p, zone, h=0.5, v=0.5):
     px, py, pw, ph = rect(p["geo"])
     x0 = px + (pw - ROW_W) / 2 + LAYOUT_OF[zone] * (CARD_W + GAP)
     y0 = py + (ph - CARD_H) / 2
-    fx = {"left": (0, h), "right": (h, 1), "top": (0, 1), "bottom": (0, 1),
-          "topLeft": (0, h), "topRight": (h, 1), "bottomLeft": (0, h), "bottomRight": (h, 1)}[zone]
-    fy = {"left": (0, 1), "right": (0, 1), "top": (0, v), "bottom": (v, 1),
-          "topLeft": (0, v), "topRight": (0, v), "bottomLeft": (v, 1), "bottomRight": (v, 1)}[zone]
-    return (x0 + CARD_W * (fx[0] + fx[1]) / 2, y0 + CARD_H * (fy[0] + fy[1]) / 2)
+    fx0, fx1, fy0, fy1 = zone_frac(zone, h, v)
+    return (x0 + CARD_W * (fx0 + fx1) / 2, y0 + CARD_H * (fy0 + fy1) / 2)
 
 
 def zone_rect(screen_geo, zone, h=0.5, v=0.5):
+    """Where KWin's quick tile for `zone` puts a window on that area."""
     x, y, w, hh = screen_geo
-    fx = {"left": (0, h), "right": (h, 1), "top": (0, 1), "bottom": (0, 1),
-          "topLeft": (0, h), "topRight": (h, 1), "bottomLeft": (0, h), "bottomRight": (h, 1)}[zone]
-    fy = {"left": (0, 1), "right": (0, 1), "top": (0, v), "bottom": (v, 1),
-          "topLeft": (0, v), "topRight": (0, v), "bottomLeft": (v, 1), "bottomRight": (v, 1)}[zone]
-    return (round(x + w * fx[0]), round(y + hh * fy[0]),
-            round(w * (fx[1] - fx[0])), round(hh * (fy[1] - fy[0])))
+    fx0, fx1, fy0, fy1 = zone_frac(zone, h, v)
+    return (round(x + w * fx0), round(y + hh * fy0), round(w * (fx1 - fx0)), round(hh * (fy1 - fy0)))
+
+
+def centre(win):
+    g = win["geo"]
+    return (g["x"] + g["w"] / 2, g["y"] + g["h"] / 2)
+
+
+def split_tile(sb, caption, fraction_px):
+    """Move the shared split by resizing the quick-tiled window's right edge."""
+    sb.probe("win(%s).tile.resizeByPixels(%d, 4 /* Qt.RightEdge */); return 1"
+             % (json.dumps(caption), fraction_px))
+    sb.settle(0.3)
+
+
+def grid_logged(sb, screen):
+    """The script's debugLog grid lines for `screen` since the last new_log()."""
+    return [line for line in sb.new_log().splitlines() if "grid h=" in line and screen in line]
 
 
 def popup_on_screen(sb):
@@ -175,8 +197,7 @@ def s_wide_window_off_centre(sb_factory):
               "popup not on Virtual-1: %s" % (p and p["geo"]))
         sb.hover(*zone_point(p, "left"), ms=450)
         w = sb.window("W")
-        centre = (w["geo"]["x"] + w["geo"]["w"] / 2, w["geo"]["y"] + w["geo"]["h"] / 2)
-        check(contains(g0, *centre), "precondition: window centre %s should be on Virtual-0" % (centre,))
+        check(contains(g0, *centre(w)), "precondition: window centre %s should be on Virtual-0" % (centre(w),))
         o = overlay(sb)
         shot(sb, "wide-offcentre")
         sb.release()
@@ -237,6 +258,7 @@ def s_stacked_lower_below(sb_factory):
 
 
 def s_stacked_lower_is_primary(sb_factory):
+    """The same with the outputs swapped: Virtual-0 below Virtual-1."""
     _stacked(sb_factory, upper_is_1=True)
 
 
@@ -288,12 +310,12 @@ def s_top_panel(sb_factory):
         peek_bottom = p and p["geo"]["y"] + p["geo"]["h"]
         sb.release()
         check(not hidden, "retracted popup is visible (over the panel) on %s" % hidden)
-        check(peek_bottom == g1[1] + 15, "peek: popup bottom at %s, expected %s" % (peek_bottom, g1[1] + 15))
+        check(peek_bottom == g1[1] + PEEK, "peek: popup bottom at %s, expected %s" % (peek_bottom, g1[1] + PEEK))
         sb.place("W", g1[0] + 300, 300, 800, 500)
         p, o, w = snap_via_popup(sb, "W", titlebar(sb, "W"), (g1[0] + g1[2] / 2, a1[1] + 40),
                                  "topRight", "panel-snap")
-        check(abs(p["geo"]["y"] - (a1[1] + 25)) <= 2, "resting popup at y=%s, expected %s (below the panel)"
-              % (p["geo"]["y"], a1[1] + 25))
+        check(abs(p["geo"]["y"] - (a1[1] + TOP_GAP)) <= 2, "resting popup at y=%s, expected %s (below the panel)"
+              % (p["geo"]["y"], a1[1] + TOP_GAP))
         check(near(rect(w["geo"]), zone_rect(a1, "topRight")),
               "W at %s, expected %s" % (w["geo"], zone_rect(a1, "topRight")))
 
@@ -323,11 +345,11 @@ def s_peek_unchanged(sb_factory):
         grab = titlebar(sb, "W")
         sb.drag([grab, (g1[0] + g1[2] / 2, 300), (g1[0] + g1[2] / 2, 120)], release=False, hold_ms=300)
         p = popup(sb)
-        check(p is not None and p["geo"]["y"] + p["geo"]["h"] == g1[1] + 15,
-              "peek: popup bottom at %s, expected %s" % (p and p["geo"]["y"] + p["geo"]["h"], g1[1] + 15))
+        check(p is not None and p["geo"]["y"] + p["geo"]["h"] == g1[1] + PEEK,
+              "peek: popup bottom at %s, expected %s" % (p and p["geo"]["y"] + p["geo"]["h"], g1[1] + PEEK))
         sb.hover(g1[0] + g1[2] / 2, 40, ms=300)
         p = popup(sb)
-        check(p["geo"]["y"] == g1[1] + 25, "rest: popup at y=%s, expected %s" % (p["geo"]["y"], g1[1] + 25))
+        check(p["geo"]["y"] == g1[1] + TOP_GAP, "rest: popup at y=%s, expected %s" % (p["geo"]["y"], g1[1] + TOP_GAP))
         sb.release()
 
 
@@ -351,6 +373,88 @@ def s_no_shadow_line(sb_factory):
             check(a == 0, "dragging on %s: popup shadow drawn at the top edge (alpha %d)" % (scr, a))
             sb.probe("win('W%s').closeWindow(); return 1" % scr)
             sb.settle(0.3)
+
+
+def s_first_drag_no_flash(sb_factory):
+    """The very first drag after the script loads: the popup maps hidden
+    (libplasma only sizes a dialog when it is shown, so a slide from its
+    pre-show position would cross the top of the screen)."""
+    with sb_factory(outputs=1) as sb:
+        sb.open_window("W", 560, 400, 800, 500)
+        grab = titlebar(sb, "W")
+        sb.pointer.move(*grab)
+        time.sleep(0.05)
+        sb.pointer.button(True)
+        time.sleep(0.05)
+        sb.pointer.move(grab[0] + 30, grab[1] + 30)
+        seen = max(sb.max_alpha(700, 0, 1220, 70) for _ in range(4))   # ~4 x 50 ms
+        shot(sb, "first-drag")
+        sb.release()
+        check(seen == 0, "first drag: popup drawn at the top of the screen (alpha %d)" % seen)
+
+
+def s_escape_never_snaps(sb_factory):
+    """Escape cancels a drag even with a zone highlighted: after a normal
+    drag, and after a press held still until KWin starts the move (the
+    window then never moves, so KWin's restore changes nothing)."""
+    with sb_factory(outputs=1) as sb:
+        sb.open_window("W", 560, 300, 800, 500)
+        start = rect(sb.window("W")["geo"])
+        sb.drag([titlebar(sb, "W"), (960, 190), (960, 40)], release=False)
+        sb.hover(*zone_point(popup(sb), "left"), ms=450)
+        check(overlay(sb) is not None, "setup: overlay not engaged")
+        sb.pointer.key(True, KEY_ESC)
+        sb.pointer.key(False, KEY_ESC)
+        time.sleep(0.2)
+        sb.release()
+        w = sb.window("W")
+        check(w["tile"] is None and near(rect(w["geo"]), start), "after a drag + Escape: W at %s, tile %s"
+              % (w["geo"], w["tile"]))
+        # Held press: put the titlebar where the popup's "top" target will be.
+        sb.place("W", 560, 40, 800, 500)
+        start = rect(sb.window("W")["geo"])
+        grab = titlebar(sb, "W")
+        sb.pointer.move(*grab)
+        time.sleep(0.05)
+        sb.pointer.button(True)
+        time.sleep(1.0)                      # longer than KWin's startDragTime
+        check(sb.window("W")["move"], "setup: KWin did not start the move")
+        sb.pointer.key(True, KEY_ESC)
+        sb.pointer.key(False, KEY_ESC)
+        time.sleep(0.2)
+        sb.release()
+        w = sb.window("W")
+        check(w["tile"] is None and near(rect(w["geo"]), start), "after a held press + Escape: W at %s, tile %s"
+              % (w["geo"], w["tile"]))
+
+
+def s_fixed_size_window(sb_factory):
+    """KWin can't tile a window that isn't resizable, so it gets no popup."""
+    with sb_factory(outputs=1) as sb:
+        sb.open_window("F", 300, 300, 800, 500, fixed_size=True)
+        check(sb.probe("return win('F').resizeable")["result"] is False, "setup: F is resizable")
+        sb.drag([titlebar(sb, "F"), (960, 190), (960, 40)], release=False)
+        shown = popup(sb)
+        sb.release()
+        check(shown is None, "popup shown for a window KWin can't tile")
+
+
+def s_top_gap_max(sb_factory):
+    """With topGap at its maximum, the whole card row is still inside the
+    trigger band: the bottom row of cards keeps the popup up and snaps."""
+    with sb_factory(outputs=1, script_config={"topGap": "999"}) as sb:
+        sb.open_window("W", 560, 400, 800, 500)
+        sb.drag([titlebar(sb, "W"), (960, 300), (960, 40)], release=False)
+        p = popup(sb)
+        y0 = p["geo"]["y"] + (p["geo"]["h"] - CARD_H) / 2
+        x = zone_point(p, "bottomLeft")[0]
+        sb.hover(x, y0 + CARD_H - 3, ms=450)  # just above the card row's bottom edge
+        o = overlay(sb)
+        sb.release()
+        w = sb.window("W")
+        check(o is not None, "the bottom of the card row is outside the band (popup at y=%s)" % p["geo"]["y"])
+        check(near(rect(w["geo"]), zone_rect((0, 0, 1920, 1080), "bottomLeft")),
+              "W at %s, expected bottomLeft" % (w["geo"],))
 
 
 def s_offset_heights(sb_factory):
@@ -408,14 +512,12 @@ def s_grid_is_per_monitor(sb_factory):
         sb.open_window("A", 300, 300, 800, 500)
         snap_via_popup(sb, "A", titlebar(sb, "A"), (g0[0] + g0[2] / 2, 40), "left", "grid-a")
         # Move A's split to 70 % (resize the tiled window's right edge).
-        sb.probe("var t = win('A').tile; t.resizeByPixels(%d, 4 /* Qt.RightEdge */); return 1"
-                 % int(g0[2] * 0.2))
-        sb.settle(0.3)
+        split_tile(sb, "A", int(g0[2] * 0.2))
         a = sb.window("A")
         sb.open_window("B", 300, 600, 700, 400)
         sb.new_log()
         p, o, w = snap_via_popup(sb, "B", titlebar(sb, "B"), (g1[0] + g1[2] / 2, 40), "left", "grid-b")
-        grid = [l for l in sb.new_log().splitlines() if "grid h=" in l and "Virtual-1" in l]
+        grid = grid_logged(sb, "Virtual-1")
         check(grid and "h=0.500" in grid[-1], "Virtual-1 grid not default: %s (A tiled at %s)" % (grid, a["geo"]))
         check(near(rect(w["geo"]), zone_rect(g1, "left")), "B at %s, expected %s"
               % (w["geo"], zone_rect(g1, "left")))
@@ -426,7 +528,7 @@ def s_per_output_desktops(sb_factory):
     B's quick tiles (split 0.65 on desktop 2) drive the preview there, and
     the dropped window ends up on desktop 2, tiled on B."""
     with sb_factory(outputs=2, desktops=2, windows_config={"PerOutputVirtualDesktops": "true"}) as sb:
-        g0, g1 = screen_of(sb, "Virtual-0"), screen_of(sb, "Virtual-1")
+        g1 = screen_of(sb, "Virtual-1")
         sb.probe("var d = workspace.desktops; workspace.setCurrentDesktopForScreen(d[1], "
                  "workspace.screens[1]); return 1")
         sb.settle(0.3)
@@ -437,8 +539,7 @@ def s_per_output_desktops(sb_factory):
         sb.open_window("T", g1[0] + 300, 300, 700, 400)
         check(sb.window("T")["desktops"] == ["Desktop 2"], "setup: T not on Desktop 2")
         snap_via_popup(sb, "T", titlebar(sb, "T"), (g1[0] + g1[2] / 2, 40), "left", "pod-t")
-        sb.probe("win('T').tile.resizeByPixels(%d, 4 /* Qt.RightEdge */); return 1" % int(g1[2] * 0.15))
-        sb.settle(0.3)
+        split_tile(sb, "T", int(g1[2] * 0.15))
         t = sb.window("T")
         h = round(t["geo"]["w"] / g1[2], 2)
         # Now drag a window from A (desktop 1) to B.
@@ -446,7 +547,7 @@ def s_per_output_desktops(sb_factory):
         sb.new_log()
         p, o, w = snap_via_popup(sb, "W", titlebar(sb, "W"), (g1[0] + g1[2] * 0.6, 40),
                                  "right", "pod-w", h=h)
-        grid = [l for l in sb.new_log().splitlines() if "grid h=" in l and "Virtual-1" in l]
+        grid = grid_logged(sb, "Virtual-1")
         check(grid and ("h=%.3f" % h)[:5] in grid[-1],
               "B's grid not used (expected h=%.2f): %s" % (h, grid))
         check(near(rect(w["geo"]), zone_rect(g1, "right", h=h), tol=3),
@@ -466,8 +567,7 @@ def s_per_output_wide_off_centre(sb_factory):
         sb.settle(0.3)
         sb.open_window("T", g1[0] + 300, 300, 700, 400)
         snap_via_popup(sb, "T", titlebar(sb, "T"), (g1[0] + g1[2] / 2, 40), "left", "pow-t")
-        sb.probe("win('T').tile.resizeByPixels(%d, 4 /* Qt.RightEdge */); return 1" % int(g1[2] * 0.15))
-        sb.settle(0.3)
+        split_tile(sb, "T", int(g1[2] * 0.15))
         h = round(sb.window("T")["geo"]["w"] / g1[2], 2)
         sb.open_window("W", 0, 300, 2400, 600)
         check(sb.window("W")["desktops"] == ["Desktop 1"], "setup: W not on Desktop 1")
@@ -479,12 +579,11 @@ def s_per_output_wide_off_centre(sb_factory):
         check(p is not None, "popup not shown")
         sb.hover(*zone_point(p, "right", h=h), ms=450)
         w = sb.window("W")
-        centre = (w["geo"]["x"] + w["geo"]["w"] / 2, w["geo"]["y"] + w["geo"]["h"] / 2)
-        check(not contains(g1, *centre), "precondition: W's centre %s should be off Virtual-1" % (centre,))
+        check(not contains(g1, *centre(w)), "precondition: W's centre %s should be off Virtual-1" % (centre(w),))
         shot(sb, "pow-wide")
         sb.release()
         time.sleep(0.3)
-        grid = [l for l in sb.new_log().splitlines() if "grid h=" in l and "Virtual-1" in l]
+        grid = grid_logged(sb, "Virtual-1")
         w = sb.window("W")
         check(grid and ("h=%.3f" % h)[:5] in grid[-1], "B's grid not used (expected h=%.2f): %s" % (h, grid))
         check(near(rect(w["geo"]), zone_rect(g1, "right", h=h), tol=3),
@@ -523,7 +622,6 @@ def s_hotplug_mid_drag(sb_factory):
         time.sleep(0.3)
         sb.release()
         time.sleep(0.5)
-        st = sb.state()
         check(popup(sb) is None and overlay(sb) is None, "popup/overlay stuck after hotplug")
         check(sb.probe("return 1")["result"] == 1, "KWin unresponsive")
         # A normal snap still works afterwards on the remaining screen.
@@ -534,7 +632,6 @@ def s_hotplug_mid_drag(sb_factory):
         errs = [l for l in sb.log_text().splitlines() if "kde-snap-overlay" in l and
                 ("TypeError" in l or "ReferenceError" in l or "Error:" in l)]
         check(not errs, "script errors: %s" % errs[:3])
-        del st
 
 
 def s_meta_drag_cross(sb_factory):
@@ -561,6 +658,10 @@ SCENARIOS = [
     s_retracted_never_visible,
     s_peek_unchanged,
     s_no_shadow_line,
+    s_first_drag_no_flash,
+    s_escape_never_snaps,
+    s_fixed_size_window,
+    s_top_gap_max,
     s_offset_heights,
     s_mixed_scale,
     s_three_monitors_sweep,
@@ -575,20 +676,31 @@ SCENARIOS = [
 
 def main():
     global SHOTS
-    ap = argparse.ArgumentParser()
-    ap.add_argument("-k", default="")
-    ap.add_argument("--shots")
-    ap.add_argument("--keep", action="store_true")
+    ap = argparse.ArgumentParser(description="Multi-monitor scenarios against a real, headless KWin.")
+    ap.add_argument("-k", default="", metavar="TEXT", help="run only scenarios whose name contains TEXT")
+    ap.add_argument("--list", action="store_true", help="list the scenarios and exit")
+    ap.add_argument("--shots", metavar="DIR", help="save screenshots of key moments into DIR")
+    ap.add_argument("--keep", action="store_true", help="keep each sandbox folder (logs, probes)")
     a = ap.parse_args()
     SHOTS = Path(a.shots) if a.shots else None
+
+    selected = [s for s in SCENARIOS if a.k in s.__name__]
+    if a.list:
+        for s in selected:
+            summary = " ".join((s.__doc__ or "").split()).split(". ")[0]
+            print("%-32s %s" % (s.__name__, summary))
+        return
+    if not selected:
+        sys.exit("no scenario matches -k %r (see --list)" % a.k)
+    missing = missing_requirements()
+    if missing:
+        sys.exit("missing: %s\nRun dev/setup-container.sh inside the dev container." % ", ".join(missing))
 
     def factory(**kw):
         return Sandbox(keep=a.keep, **kw)
 
     failed = 0
-    for s in SCENARIOS:
-        if a.k not in s.__name__:
-            continue
+    for s in selected:
         t = time.time()
         try:
             s(factory)
@@ -599,7 +711,7 @@ def main():
         except Exception:
             failed += 1
             print("ERROR %-36s %5.1fs\n%s" % (s.__name__, time.time() - t, traceback.format_exc()), flush=True)
-    print(json.dumps({"failed": failed}))
+    print(json.dumps({"ran": len(selected), "failed": failed}))
     sys.exit(1 if failed else 0)
 
 
