@@ -30,6 +30,10 @@ Verified against KWin's source, branches `Plasma/6.4`, `Plasma/6.5`, `Plasma/6.6
 
 ## The drag/drop lifecycle
 
+**Which windows tile:** `Tile::manage` refuses a window that isn't resizable (`isResizable()`: false when its minimum and maximum sizes match, under a size rule, or fullscreen), so `slotWindowQuickTile*` does nothing for it. KWin's own edge tiling skips such windows too.
+
+**Start without motion:** a titlebar press held still for `startDragTime` starts the move anyway (`Window::startDelayedInteractiveMoveResize`). Cancelling or releasing then leaves the window where it was, so a cancel's `moveResize(initialGeometry)` emits no geometry change.
+
 **Start:** `Window::startInteractiveMoveResize` records the initial geometry, maximize mode and quick-tile mode, then emits `interactiveMoveResizeStarted`. At that point `window.move` is true.
 
 **During the drag** (`Window::handleInteractiveMoveResize`): on the first real step, a maximized window is unmaximized and a quick-tiled window is untiled (`setQuickTileModeAtCurrentPosition(None)`), while `move` is still true. By drop time the window is never tiled or maximized.
@@ -42,7 +46,7 @@ Verified against KWin's source, branches `Plasma/6.4`, `Plasma/6.5`, `Plasma/6.6
 5. if electric-border maximizing: KWin applies its own quick tile or maximize. Shift-drop gives a custom tile;
 6. `Q_EMIT interactiveMoveResizeFinished()`. **This is emitted for cancels too.**
 
-So any of these for the dragged window between steps 1 and 6 means KWin handled the drop: `requestedTileChanged`, `maximizedAboutToChange`, or a `frameGeometryChanged` landing back on the start position. That is the `dropHandled` logic in `connectWindow`.
+So `requestedTileChanged` or `maximizedAboutToChange` for the dragged window between steps 1 and 6 means KWin handled the drop (the `dropHandled` logic in `connectWindow`). A window back at, or never moved from, its start position (a plain cancel, or a move that started without motion, see above) is caught in `onDrop` by comparing it with `dragStartPos`.
 
 **Geometry timing** (`XdgSurfaceWindow::moveResizeInternal` in `src/xdgshellwindow.cpp`):
 - a pure move (same size) updates `frameGeometry` **synchronously**;
@@ -72,6 +76,10 @@ Verified in `Plasma/6.7` and in the real-KWin test bed (`tests/kwin`).
 **Painting:** KWin draws a window, internal windows included, on every output its geometry overlaps (its bounding rect, so the theme shadow outside the frame counts: about 10 px below a Breeze dialog). "Above the top edge" only hides the popup when no output is there: monitors stacked vertically, or a top panel (MaximizeArea starts below it), would show it. See `Logic.revealPositions`.
 
 **Placement in the test bed:** `--virtual --output-count N` lays outputs out left to right at the given size; `kde_output_management_v2` moves, rescales and disables them at runtime. KWin 6.7 announces output devices through `kde_output_device_registry_v2.output` (a server-created `new_id`), which pywayland cannot receive, hence `tests/kwin/outputctl.c`.
+
+## The popup dialog (libplasma)
+
+`PlasmaCore.Dialog` sizes itself from its mainItem only while shown (`DialogPrivate::syncToMainItemSize` returns early for a hidden dialog). Before its first show its `height` is 0, so any position computed from it changes when it maps; the script places that first map without the slide (`placeInstantly`).
 
 ## Other scripting facts
 - `Workspace.cursorPos` notifies (`cursorPosChanged`), but the script polls every 16 ms by design.

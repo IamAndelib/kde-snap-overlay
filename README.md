@@ -50,8 +50,8 @@ When upgrading, log out and back in afterwards — KWin can keep running the old
 git clone https://github.com/IamAndelib/kde-snap-overlay.git
 cd kde-snap-overlay
 
-# install the package
-kpackagetool6 --type KWin/Script --install .
+# install the package (use --upgrade instead of --install to update an existing install)
+kpackagetool6 --type KWin/Script --install kde-snap-overlay-1.7.1.kwinscript
 
 # enable it
 kwriteconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled true
@@ -69,9 +69,9 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | Key                  | Default | Range | Meaning                                              |
 | -------------------- | ------- | ----- | ---------------------------------------------------- |
 | `activationDistance` | 150     | 100–400 | Band below the top edge (px) in which the popup appears |
-| `topGap`             | 25      | 0–(activationDistance−84) | Resting offset between the top edge and the popup panel (25 replicates the old selector chrome) |
+| `topGap`             | 25      | 0–(activationDistance−84−frame) | Resting offset between the top edge and the popup panel. The maximum keeps the whole card row inside the trigger band: 84 px of cards and padding plus the theme's dialog frame (4 px with Breeze, so 62 by default) |
 | `showDistance`       | 75      | topGap+10–activationDistance−10 | Cursor distance from the top edge below which the popup fully drops (beyond it, only the peek sliver shows). Default matches KZones' trigger distance |
-| `peekHeight`         | 15      | 10–popupHeight−20 | Height of the popup sliver that peeks over the top edge while peeking |
+| `peekHeight`         | 15      | 10–78 | Height of the popup sliver that peeks over the top edge while peeking |
 | `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
 | `highlightDelay`     | 150     | 0–500 | Rest (ms) the cursor must hold on one layout before the fullscreen zone overlay engages. The popup cards highlight instantly either way; `0` engages the overlay instantly (FancyZones' own behavior) |
 | `overlayFadeIn`      | 200     | 0–1000 | Fade-in duration (ms) of the zone overlay — FancyZones' 200ms linear alpha ramp, the overlay's only animation |
@@ -114,7 +114,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 - The preview geometry is **KWin's own quick tile**: through any quick-tiled window on the screen (its `tile`, whose `parent` is the quick-tile root holding all eight `tiles`), the overlay shows the target tile's exact `absoluteGeometry` and the card diagrams use its live split lines — resized splits, and KWin re-balancing the grid mid-drag, are reflected immediately. With nothing quick-tiled, KWin's grid is back at its default 50/50, which is what the preview shows. The overlay shows **where KWin will put the window** — the tile — even if a floating window overlaps that space. (`Window.quickTileGeometry()` and the quick-tile root are not exposed to scripts directly.)
 - On release, the highlighted zone's `slotWindowQuickTile*` is called — KWin's **native quick-tiling**, so window sticking and adjacent-resize-on-edge behave exactly like KWin's own edge tiling. A short delay lets KWin commit the drop first. Those slots act on the active window, so a window moved without being activated (Meta+drag) is activated first — and if it can't be, nothing is tiled rather than the wrong window.
 - Drops KWin handles itself are left alone: cancelling the move with **Escape** puts the window back as usual, and KWin's own edge tiling/maximize or Shift-drop custom tiling is never overridden.
-- **Multi-monitor**: the popup, trigger band and preview follow the screen under the cursor during the drag (and the current virtual desktop, if it switches mid-drag).
+- **Multi-monitor**: the popup, trigger band and preview follow the screen under the cursor during the drag, and that screen's virtual desktop (per-monitor desktops included). The window always snaps on the monitor the popup was on, even a wide window whose centre is still on another monitor. Where a monitor sits directly above another, the lower one's popup appears without the peek stage and the slide, which would otherwise be drawn on the upper monitor.
 - An effect (KWin *SceneEffect*) was deliberately **not** used: effects render opaquely and would require duplicating KWin's tiling machinery, breaking sticking/adjacent-resize.
 
 ## Color scheme
@@ -129,16 +129,21 @@ The popup's panel is the Plasma dialog's default theme background (theme translu
 
 ## Limitations
 
-- Mouse drags only (no keyboard shortcuts).
+- Mouse drags only (no keyboard shortcuts). X11 is untested.
+- Windows KWin can't tile (fixed-size dialogs, fullscreen windows) get no popup.
+- With no quick-tiled window on a screen, the preview assumes KWin's default 50/50 grid (KWin doesn't expose its quick-tile layout to scripts any other way); that is also KWin's own state then.
+- A Meta+drag snap activates the dropped window (KWin's tile actions act on the active window).
+- Where a monitor sits directly above another, the lower one's popup has no peek stage and no slide.
 
 ## Development
 
 ```sh
-node --test tests/*.test.mjs   # unit + drag/drop lifecycle tests (Node 22)
-./install.sh                   # install/upgrade the working tree, then log out and back in
+node --test tests/*.test.mjs        # unit + drag/drop lifecycle tests (Node 22)
+python3 -I tests/kwin/scenarios.py  # multi-monitor scenarios in a real, headless KWin
+./install.sh                        # install/upgrade the working tree, then log out and back in
 ```
 
-With `debugLog` on (see Configuration), `journalctl --user -f | grep kde-snap-overlay` shows the grid source per drag, overlay engage/switch, and any skipped snap. Architecture, the behaviour contract, the KWin internals the script relies on ([docs/kwin-notes.md](docs/kwin-notes.md)) and the release process are in [CLAUDE.md](CLAUDE.md). Releases publish automatically when `main` carries a new `metadata.json` version with a matching [CHANGELOG](CHANGELOG.md) section.
+With `debugLog` on (see Configuration), `journalctl --user -f | grep kde-snap-overlay` shows the grid source per drag, overlay engage/switch, and any skipped snap. Setup, testing, conventions and the release process are in [CONTRIBUTING.md](CONTRIBUTING.md); the architecture and behaviour contract in [docs/architecture.md](docs/architecture.md); the KWin internals the script relies on in [docs/kwin-notes.md](docs/kwin-notes.md). Releases publish automatically when `main` carries a new `metadata.json` version with a matching [CHANGELOG](CHANGELOG.md) section.
 
 ## License
 

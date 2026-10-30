@@ -2,6 +2,26 @@
 
 Notable changes to KDE Snap Overlay. Each release's GitHub notes are published from its section here.
 
+## [Unreleased]
+
+Multi-monitor and drag fixes, found and verified with a new real-KWin test bed.
+
+**Fixes**
+- **Wide windows on multiple monitors:** a window grabbed far from its centre could be previewed on one monitor and snapped onto another (KWin tiles on the monitor under the window's centre). It now always lands where the preview showed, on that monitor's desktop.
+- **Monitors stacked vertically:** the hidden popup of the lower monitor showed along the bottom of the upper one during every drag. Where a monitor sits directly above, the popup now stays out of sight and appears without the peek stage and the slide.
+- **Top panel:** part of the hidden popup showed over a top panel during every drag. The peek sliver now hangs off the screen's real top edge.
+- **Shadow line:** the hidden popup's theme shadow left a faint line at the top centre of the screen during every drag (single monitor too).
+- **Per-monitor desktops (Plasma 6.7):** switching the desktop on another monitor mid-drag no longer blinks the zone preview off, and each monitor's own desktop and tiles drive its preview.
+- **First drag after login:** the popup no longer flashes onto the screen and slides away.
+- **Escape:** a press held until KWin starts the move, then cancelled (or released) without moving, no longer snaps the window.
+- **Fixed-size windows** (and fullscreen ones) no longer get a popup whose drop does nothing: KWin can't tile them.
+- **`topGap` at its maximum:** the bottom of the cards is inside the trigger band again, so it snaps.
+
+**Under the hood**
+- `tests/kwin`: 23 scenarios run against a real, headless KWin with virtual monitors (stacked, offset, scaled, three monitors, a top panel, per-monitor desktops, hotplug mid-drag, Escape, first drag).
+- One less handler on every window's geometry changes; the config unit test now checks `main.qml`'s own settings.
+- The packages ship `LICENSE` and `NOTICE`; contributor docs moved to `CONTRIBUTING.md` and `docs/architecture.md`.
+
 ## [1.7.1] - 2026-09-28
 
 Exact snap previews, multi-monitor support, and a hardened drop path.
