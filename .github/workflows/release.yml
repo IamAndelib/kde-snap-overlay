@@ -46,6 +46,21 @@ jobs:
         if: steps.existing.outputs.exists == 'false'
         run: node --test tests/*.test.mjs
 
+      # The committed .kwinscript is what README installs and
+      # dev/preview.sh --restore use; it must match the source being released.
+      - name: Check the committed package matches the source
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/committed" "$RUNNER_TEMP/source"
+          unzip -q "kde-snap-overlay-$VERSION.kwinscript" -d "$RUNNER_TEMP/committed"
+          cp -r metadata.json LICENSE NOTICE contents "$RUNNER_TEMP/source/"
+          if ! diff -r "$RUNNER_TEMP/committed" "$RUNNER_TEMP/source"; then
+            echo "::error::kde-snap-overlay-$VERSION.kwinscript is stale: run ./package.sh --force and commit it"
+            exit 1
+          fi
+
       - name: Build package
         if: steps.existing.outputs.exists == 'false'
         run: ./package.sh --force

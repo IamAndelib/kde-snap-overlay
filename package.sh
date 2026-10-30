@@ -3,7 +3,8 @@
 # KDE Snap Overlay - KWin script packager
 #
 # Builds the distributable .kwinscript archive (a plain zip) from
-# metadata.json + contents/, with the version taken from metadata.json.
+# metadata.json + contents/ (plus LICENSE and NOTICE, which the GPL wants
+# shipped with the code), with the version taken from metadata.json.
 #
 # Usage:
 #   ./package.sh             build kde-snap-overlay-<version>.kwinscript
@@ -53,14 +54,16 @@ fi
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
-cp "$METADATA" "$STAGE_DIR/"
+cp "$METADATA" "$SCRIPT_DIR/LICENSE" "$SCRIPT_DIR/NOTICE" "$STAGE_DIR/"
 cp -r "$SCRIPT_DIR/contents" "$STAGE_DIR/"
 
 echo ">>> Building $OUTPUT ..."
 (
     cd "$STAGE_DIR"
-    zip -X -9 -r -q "$OUTPUT" metadata.json contents
+    zip -X -9 -r -q "$OUTPUT" metadata.json LICENSE NOTICE contents
 )
 
 echo ">>> Done."
-unzip -l "$OUTPUT"
+if command -v unzip >/dev/null 2>&1; then
+    unzip -l "$OUTPUT"
+fi
