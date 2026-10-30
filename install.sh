@@ -39,7 +39,7 @@ do_install() {
     echo ">>> Staging runtime files for installation..."
     STAGE_DIR="$(mktemp -d)"
     trap 'rm -rf "$STAGE_DIR"' EXIT
-    cp -r "$SCRIPT_DIR/metadata.json" "$SCRIPT_DIR/contents" "$STAGE_DIR/"
+    cp -r "$SCRIPT_DIR/metadata.json" "$SCRIPT_DIR/LICENSE" "$SCRIPT_DIR/NOTICE" "$SCRIPT_DIR/contents" "$STAGE_DIR/"
 
     echo ">>> Installing KWin script package..."
     UPGRADED=false

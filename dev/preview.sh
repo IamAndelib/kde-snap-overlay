@@ -72,9 +72,11 @@ do_preview() {
     version="$(in_devbox jq -r '.KPlugin.Version' metadata.json)-preview.${sha}${dirty}"
 
     # /tmp is shared with the container, so the container can stamp the stage.
-    STAGE="$(mktemp -d)"
+    STAGE="$(mktemp -d -p /tmp)"
     trap 'rm -rf "$STAGE"' EXIT
-    cp -r "$REPO_DIR/metadata.json" "$REPO_DIR/contents" "$REPO_DIR/install.sh" "$STAGE/"
+    # Everything install.sh stages from its own folder, plus install.sh.
+    cp -r "$REPO_DIR/metadata.json" "$REPO_DIR/LICENSE" "$REPO_DIR/NOTICE" "$REPO_DIR/contents" \
+        "$REPO_DIR/install.sh" "$STAGE/"
     # $1, $2 and $v expand in the inner shell and in jq, not here.
     # shellcheck disable=SC2016
     in_devbox sh -c 'jq --arg v "$1" ".KPlugin.Version = \$v" "$2/metadata.json" > "$2/metadata.json.new" \
@@ -110,6 +112,6 @@ case "${1:-}" in
     "")                 do_preview ;;
     --restore|restore)  do_restore ;;
     --status|status)    echo "Installed: $(installed_version)" ;;
-    -h|--help|help)     sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+    -h|--help|help)     awk 'NR > 2 && !/^#/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}" ;;
     *) echo "Unknown option: $1 (use --restore, --status or nothing)" >&2; exit 1 ;;
 esac

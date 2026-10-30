@@ -1,8 +1,15 @@
 name: Test
 
+# Unit tests and linters on every PR and on pushes to main. The real-KWin
+# multi-monitor suite (tests/kwin) needs KWin 6.7 and runs locally; see
+# CONTRIBUTING.md.
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -18,4 +25,17 @@ jobs:
         run: node --test tests/*.test.mjs
 
       - name: Check shell scripts
-        run: bash -n install.sh package.sh
+        run: |
+          bash -n install.sh package.sh dev/preview.sh dev/setup-container.sh
+          shellcheck install.sh package.sh dev/preview.sh dev/setup-container.sh
+
+      # Ubuntu's own Python refuses pip installs (PEP 668).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint the KWin test bed and the workflows
+        run: |
+          pip install --quiet pyflakes==4.1.0 actionlint-py==1.7.12.25
+          pyflakes tests/kwin/*.py
+          actionlint .github/workflows/*.yml
