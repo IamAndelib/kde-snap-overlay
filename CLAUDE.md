@@ -10,6 +10,7 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 - `contents/code/main.js`: pure logic, `.pragma library`. It holds the `LAYOUTS` table, a `ZONES` lookup, zone geometry/hit-testing, `quickZoneFor`/`quickTilesOf` (identify KWin's 8 quick tiles) and `clampNumber` (config sanitising). Keep it free of QML/KWin access so it stays unit-testable.
 - `contents/ui/components/`: `Selector.qml` (card row), `Indicator.qml` (one card) and `ColorHelper.qml` (Kirigami colour tokens). All are forked from KZones 0.9.3.
 - `install.sh`: install/upgrade/uninstall plus enable (Plasma 6 only). `package.sh` builds `kde-snap-overlay-<version>.kwinscript` (zip; needs `zip` and `jq`).
+- `dev/preview.sh`: host-side preview installer (see "Dev environment"). Not shipped in the package.
 - `kde-snap-overlay-<version>.kwinscript`: the committed release artifact. Only the current version is kept.
 - `tests/`: Node test suites (see Testing).
 - `.github/workflows/`:
@@ -50,18 +51,26 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 - Match the surrounding style: QML 4-space indent, comments that explain *why*, no new dependencies.
 - Git: feature branch, then a PR, then a **merge commit** (not squash). Commit messages are conventional-ish (`fix:`, `feat:`, `chore:`) with an explanatory body.
 
+## Dev environment: container for development, host for testing only
+The user keeps the host untouched. **All development commands run inside the distrobox `dev`** (Fedora 44 toolbox; it shares `$HOME`, so the repo is at the same path inside). From a host shell, wrap commands:
+`distrobox enter dev -- bash -c 'cd ~/Development/kde-snap-overlay && <command>'`.
+- Never install packages or tools on the host. Container tools: Node 22, `jq`, `zip`, `shellcheck` (dnf), plus `/opt/kso-tools` (a venv in the container's own filesystem, not `$HOME`) with `pyside6-qmllint` and `actionlint`. Install anything new into the container (`sudo dnf …` or `/opt/kso-tools/bin/pip …`).
+- The only host-side action is installing a preview for the user to try: **`dev/preview.sh`** (run on the host). It runs the tests in the container (a failure aborts), stages the working tree with the version stamped `<version>-preview.<commit>[.dirty]` and installs it with the repo's own `install.sh`. `dev/preview.sh --status` shows what's installed; `dev/preview.sh --restore` puts the committed release `.kwinscript` back. After an install the user must **log out and back in**.
+- Feature flow: develop and validate in the container, then `dev/preview.sh`, then hand the user a test checklist. Publish only after their sign-off.
+
 ## Testing and validation
+All of these run inside the `dev` container.
 - `node --test tests/*.test.mjs` (Node 22). 19 tests:
   - `quicktiles.test.mjs`: `quickZoneFor`/`quickTilesOf` against a replica of KWin's QuickRootTile;
   - `lifecycle.test.mjs`: extracts the real functions from `main.qml` and drives 14 scenarios against a fake KWin: drop, Escape cancel, Meta+drag, watchdog, multi-monitor, desktop switch, startup, config.
 - The harness extracts functions declared at **4-space indent** in `main.qml` and fails loudly ("harness drift") if a listed function disappears. New popup-level state must also be declared in the harness scope.
 - **Mutation check:** copy `contents/` to a temp folder, break the fix there, and run `KSO_ROOT=/tmp/copy node --test tests/lifecycle.test.mjs`. The guarding test must fail.
-- **QML lint:** `python3 -m venv ~/.venvs/qt && ~/.venvs/qt/bin/pip install PySide6-Essentials`, then `~/.venvs/qt/bin/pyside6-qmllint contents/ui/main.qml`. KWin/Plasma modules are unavailable outside KWin, so import and "unqualified access" warnings are normal. Compare warning counts against `main` (no new warning *types*, no syntax errors).
-- **Workflows:** `actionlint .github/workflows/*.yml` (for example via `pip install actionlint-py`).
-- **Shell:** `bash -n install.sh package.sh`.
+- **QML lint:** `/opt/kso-tools/bin/pyside6-qmllint contents/ui/main.qml`. KWin/Plasma modules are unavailable outside KWin, so import and "unqualified access" warnings are normal. Compare warning counts against `main` (no new warning *types*, no syntax errors). Baseline on 1.7.1: 32 warnings, all `[unqualified]`.
+- **Workflows:** `/opt/kso-tools/bin/actionlint .github/workflows/*.yml`.
+- **Shell:** `bash -n install.sh package.sh dev/preview.sh` and `shellcheck install.sh package.sh dev/preview.sh`.
 
 ## Dev loop on the user's machine
-- `./install.sh` installs or upgrades and enables the script; then **log out and back in**, because KWin can keep running a loaded script's old code.
+- `dev/preview.sh` (host) installs the working tree as a preview; `./install.sh` is what end users run. Either way, **log out and back in** afterwards, because KWin can keep running a loaded script's old code.
 - Debug: `kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key debugLog true; qdbus6 org.kde.KWin /KWin reconfigure`, then `journalctl --user -f | grep kde-snap-overlay`. You'll see `grid h=… v=… source=quick-tiles|default screen=…` per drag and screen, overlay engage/switch/map lines, and skipped-snap notes.
 - Config keys and ranges are in README "Configuration" (group `Script-kde-snap-overlay`).
 
