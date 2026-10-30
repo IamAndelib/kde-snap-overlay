@@ -37,6 +37,15 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-node@v4
+        if: steps.existing.outputs.exists == 'false'
+        with:
+          node-version: 22
+
+      - name: Run tests
+        if: steps.existing.outputs.exists == 'false'
+        run: node --test tests/*.test.mjs
+
       - name: Build package
         if: steps.existing.outputs.exists == 'false'
         run: ./package.sh --force

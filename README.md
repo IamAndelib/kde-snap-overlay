@@ -131,6 +131,15 @@ The popup's panel is the Plasma dialog's default theme background (theme translu
 
 - Mouse drags only (no keyboard shortcuts).
 
+## Development
+
+```sh
+node --test tests/*.test.mjs   # unit + drag/drop lifecycle tests (Node 22)
+./install.sh                   # install/upgrade the working tree, then log out and back in
+```
+
+With `debugLog` on (see Configuration), `journalctl --user -f | grep kde-snap-overlay` shows the grid source per drag, overlay engage/switch, and any skipped snap. Architecture, the behaviour contract, the KWin internals the script relies on ([docs/kwin-notes.md](docs/kwin-notes.md)) and the release process are in [CLAUDE.md](CLAUDE.md). Releases publish automatically when `main` carries a new `metadata.json` version with a matching [CHANGELOG](CHANGELOG.md) section.
+
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
