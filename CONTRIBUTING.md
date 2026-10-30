@@ -62,8 +62,8 @@ It reports the grid source per drag and screen (`grid h=… v=… source=quick-t
 
 `main` is the release branch: a push that carries a `metadata.json` version without a GitHub release publishes one (`release.yml`).
 
-1. Bump `KPlugin.Version` in `metadata.json` (1.7.1, then 1.7.2 or 1.8.0).
-2. Rename `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - YYYY-MM-DD`; its body becomes the release notes. Keep the existing shape: a headline, then **Fixes**, **Hardening**, **Under the hood**, **Requirements**, and an install line.
+1. Bump `KPlugin.Version` in `metadata.json` (1.8.0, then 1.8.1 or 1.9.0).
+2. Rename `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - YYYY-MM-DD` (add an empty `## [Unreleased]` again after the release); its body becomes the release notes. Keep the existing shape: a headline, then **Fixes**, **Hardening**, **Under the hood**, **Requirements**, and an install line.
 3. Run `./package.sh --force`, commit the new `.kwinscript`, `git rm` the previous one, and update the file name in the README's install options.
 4. After a real-session check, merge to `main`. The release workflow refuses to publish if the CHANGELOG section is missing or the committed package doesn't match the source.
 5. Upload the package to the KDE Store by hand.

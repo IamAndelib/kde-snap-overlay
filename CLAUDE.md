@@ -2,7 +2,7 @@
 
 A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts" popup when a window is dragged to the top edge. Dropping on a zone applies **KWin's native quick tiling**. Author: IamAndelib. Licence: GPL-3.0-or-later (some components derive from KZones; see `NOTICE`).
 
-**Status:** v1.7.1 is released and is the only GitHub release (older releases and tags were deleted on purpose). `main` is the release branch. Unreleased work is listed under `## [Unreleased]` in `CHANGELOG.md`.
+**Status:** v1.8.0 is the current release (v1.7.1 before it; older releases and tags were deleted on purpose, abandoned branches live on as `archive/*` tags). `main` is the release branch. Work after a release goes under `## [Unreleased]` in `CHANGELOG.md`.
 
 ## Read first
 
@@ -33,5 +33,5 @@ The user keeps the host untouched. **All development commands run inside the dis
 
 - Up to 1.7.0: the KZones-style popup, native dialog panel, FancyZones overlay model.
 - 1.7.1: cleanup, licence corrected to GPL-3.0-or-later, exact KWin tile geometry (the `parentTile`/`childTiles` bug), Escape and Meta+drag fixes, hardening, release automation. The old v2.x line was abandoned and removed.
-- Unreleased: fixes found with the new `tests/kwin` bed (wrong-monitor snap for wide windows, stacked monitors, top panel, shadow line, per-output desktop switches, first-drag flash, Escape after a held press, fixed-size windows, `topGap` maximum), contributor docs and CI linting.
+- 1.8.0: multi-monitor done right and drag fixes, all found with the new `tests/kwin` bed (wrong-monitor snap for wide windows, stacked monitors, per-output desktops, top panel, shadow line, first-drag flash, Escape after a held press, fixed-size windows, `topGap` maximum); contributor docs, a reproducible dev container and CI linting.
 - A sibling project, `window-geometry-restore`, lives in its own repo and is out of scope here.

@@ -2,25 +2,38 @@
 
 Notable changes to KDE Snap Overlay. Each release's GitHub notes are published from its section here.
 
-## [Unreleased]
+## [1.8.0] - 2026-10-30
 
-Multi-monitor and drag fixes, found and verified with a new real-KWin test bed.
+Multi-monitor done right, plus a round of drag fixes, every one found and verified against a real KWin.
+
+**Multi-monitor**
+- **The snap lands where the preview showed.** KWin tiles on the monitor under a window's centre, so a wide window grabbed far from its centre could be previewed on one monitor and snapped onto the other. It is now moved to the popup's monitor first, onto the desktop that monitor shows.
+- **Monitors stacked vertically:** the hidden popup of the lower monitor no longer shows along the bottom of the upper one during every drag. Where a monitor sits directly above, the popup stays out of sight and appears without the peek stage and the slide, which would be drawn on that monitor.
+- **Per-monitor virtual desktops (Plasma 6.7):** each monitor's own desktop and tiles drive its preview, and switching the desktop on another monitor mid-drag no longer blinks the preview off.
+- Moving to another monitor mid-drag, the popup jumps there instead of sliding across the others.
 
 **Fixes**
-- **Wide windows on multiple monitors:** a window grabbed far from its centre could be previewed on one monitor and snapped onto another (KWin tiles on the monitor under the window's centre). It now always lands where the preview showed, on that monitor's desktop.
-- **Monitors stacked vertically:** the hidden popup of the lower monitor showed along the bottom of the upper one during every drag. Where a monitor sits directly above, the popup now stays out of sight and appears without the peek stage and the slide.
-- **Top panel:** part of the hidden popup showed over a top panel during every drag. The peek sliver now hangs off the screen's real top edge.
-- **Shadow line:** the hidden popup's theme shadow left a faint line at the top centre of the screen during every drag (single monitor too).
-- **Per-monitor desktops (Plasma 6.7):** switching the desktop on another monitor mid-drag no longer blinks the zone preview off, and each monitor's own desktop and tiles drive its preview.
 - **First drag after login:** the popup no longer flashes onto the screen and slides away.
 - **Escape:** a press held until KWin starts the move, then cancelled (or released) without moving, no longer snaps the window.
-- **Fixed-size windows** (and fullscreen ones) no longer get a popup whose drop does nothing: KWin can't tile them.
-- **`topGap` at its maximum:** the bottom of the cards is inside the trigger band again, so it snaps.
+- **Fixed-size windows** (and fullscreen ones) no longer get a popup whose drop does nothing: KWin can't tile them, so they get no popup, as with KWin's own edge tiling.
+- **Top panel:** the hidden popup no longer shows over a top panel during every drag; the peek sliver hangs off the screen's real top edge.
+- **Shadow line:** the hidden popup's theme shadow no longer leaves a faint line at the top centre of the screen during every drag.
+- **`topGap` at its maximum:** the bottom row of cards is inside the trigger band again, so it snaps.
+
+**Hardening**
+- The drag screen's desktop is asked for explicitly (`currentDesktopForScreen`) instead of KWin's "current" desktop, which follows the active window's monitor.
+- One handler less on every window's geometry changes.
 
 **Under the hood**
-- `tests/kwin`: 23 scenarios run against a real, headless KWin with virtual monitors (stacked, offset, scaled, three monitors, a top panel, per-monitor desktops, hotplug mid-drag, Escape, first drag).
-- One less handler on every window's geometry changes; the config unit test now checks `main.qml`'s own settings.
-- The packages ship `LICENSE` and `NOTICE`; contributor docs moved to `CONTRIBUTING.md` and `docs/architecture.md`.
+- `tests/kwin`: 23 scenarios run against a real, headless KWin with virtual monitors (stacked, offset, 150 % scale, three monitors, a top panel, per-monitor desktops, hotplug mid-drag, Escape, the first drag, pixel checks). On 1.7.1, the twelve bug scenarios fail.
+- The unit harness (34 tests) reads `main.qml`'s own settings and `main.js`'s exports instead of copies.
+- CI lints every script, the test bed and the workflows; a release fails if the committed package doesn't match the source.
+- The package ships `LICENSE` and `NOTICE`.
+- For contributors: `CONTRIBUTING.md`, `docs/architecture.md`, issue and PR templates, and `dev/setup-container.sh` for a reproducible development container.
+
+**Requirements:** Plasma / KWin 6 (tested on 6.7.5), Wayland. Per-monitor virtual desktops need Plasma 6.7.
+
+Install via System Settings → Window Management → KWin Scripts → *Install from File…*, or clone and run `./install.sh` (log out and back in after an upgrade).
 
 ## [1.7.1] - 2026-09-28
 

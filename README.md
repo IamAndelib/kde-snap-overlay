@@ -28,7 +28,7 @@ All native behaviors are left intact:
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.7.1.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)); see the [changelog](CHANGELOG.md) for what's new:
+Grab `kde-snap-overlay-1.8.0.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)); see the [changelog](CHANGELOG.md) for what's new:
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -51,7 +51,7 @@ git clone https://github.com/IamAndelib/kde-snap-overlay.git
 cd kde-snap-overlay
 
 # install the package (use --upgrade instead of --install to update an existing install)
-kpackagetool6 --type KWin/Script --install kde-snap-overlay-1.7.1.kwinscript
+kpackagetool6 --type KWin/Script --install kde-snap-overlay-1.8.0.kwinscript
 
 # enable it
 kwriteconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled true
