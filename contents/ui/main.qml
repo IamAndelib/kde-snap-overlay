@@ -51,11 +51,10 @@ PlasmaCore.Dialog {
     // (zoneSelectorTriggerDistance 1 -> 1*50+25 = 75px).
     readonly property int showDistance: Logic.clampNumber(KWin.readConfig("showDistance", 75), 75,
         topGap + 10, Math.max(activationDistance - 10, topGap + 10))
-    // Fraction of the screen width to ignore on each side of the trigger band,
-    // so dragging to the corners (quarter-tile intent) doesn't open the popup.
-    readonly property real edgeGapRatio: Logic.clampNumber(KWin.readConfig("edgeGapRatio", 0.25), 0.25, 0, 0.5)
-    // Horizontal trigger margin on each side, derived from the current screen width.
-    readonly property real edgeGap: screenArea.width * edgeGapRatio
+    // How far (px) the trigger band reaches beyond the popup on each side
+    // (Logic.bandSpan), so the popup only wakes near itself and drags toward
+    // the top corners (KWin's quarter-tiling) never open it.
+    readonly property int activationMargin: Logic.clampNumber(KWin.readConfig("activationMargin", 60), 60, 0, 500)
 
     // ---- Overlay behavior (FancyZones' animation model) ----
     // Dwell time (ms) the cursor must rest on one zone before the fullscreen
@@ -505,9 +504,14 @@ PlasmaCore.Dialog {
         if (screen && screen !== dragScreen) {
             retarget()
         }
+        // The band reaches activationMargin beyond the popup on each side.
+        // The dialog's width is 0 until libplasma first maps it, so the card
+        // row's own width stands in until then.
+        var band = Logic.bandSpan(screenArea.x, screenArea.width,
+            Math.max(width, zoneSelector.implicitWidth), activationMargin)
         var inBand =
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
-            pos.x >= screenArea.x + edgeGap && pos.x <= screenArea.x + screenArea.width - edgeGap
+            pos.x >= band.left && pos.x <= band.right
         if (inBand) {
             // Back inside the band: reveal the selector again. The dialog
             // may have been hidden by the fly-out — remapping is safe, the

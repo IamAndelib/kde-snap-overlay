@@ -2,6 +2,14 @@
 
 Notable changes to KDE Snap Overlay. Each release's GitHub notes are published from its section here.
 
+## [Unreleased]
+
+**Changes**
+- **The popup only wakes near itself.** Sideways, the trigger band now reaches 60 px beyond the popup on each side, instead of out to a quarter of the screen width (on a 1920 px screen that was 257 px beside the popup). The new `activationMargin` setting (px, 0–500) replaces `edgeGapRatio`, which is no longer read: if you had set it, set `activationMargin` instead. The band is measured from the popup, so it behaves the same on any screen width and always contains the whole popup (a large `edgeGapRatio` could leave the outer cards outside it).
+
+**Under the hood**
+- `tests/kwin`: a scenario for the band's reach beside the popup (24 scenarios); the unit suites check the band on one and two screens (39 tests).
+
 ## [1.8.0] - 2026-10-30
 
 Multi-monitor done right, plus a round of drag fixes, every one found and verified against a real KWin.

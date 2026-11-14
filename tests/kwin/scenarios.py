@@ -21,6 +21,10 @@ from sandbox import KEY_ESC, Sandbox, missing_requirements  # noqa: E402
 CARD_W, CARD_H, GAP = 130, 70, 10
 ROW_W = 3 * CARD_W + 2 * GAP
 TOP_GAP, PEEK = 25, 15
+# The trigger band reaches MARGIN (activationMargin) beyond the popup on each
+# side; the popup is POPUP_W wide (cards, padding and the Breeze dialog frame).
+MARGIN = 60
+POPUP_W = ROW_W + 2 * 14 + 8
 # Each zone's card (main.js LAYOUTS) and its fractions of the card / screen
 # as (x0, x1, y0, y1), given the grid splits h and v (main.js zoneRectFrac).
 LAYOUT_OF = {"left": 0, "right": 0, "top": 1, "bottom": 1,
@@ -126,6 +130,13 @@ def popup_on_screen(sb):
     return hits
 
 
+def band_left(screen_geo):
+    """The trigger band's left end on a screen: MARGIN left of the popup,
+    which is centred on the screen."""
+    x, _, w, _ = screen_geo
+    return x + w / 2 - POPUP_W / 2 - MARGIN
+
+
 def shot(sb, name):
     if SHOTS:
         SHOTS.mkdir(parents=True, exist_ok=True)
@@ -190,7 +201,7 @@ def s_wide_window_off_centre(sb_factory):
         g0, g1 = screen_of(sb, "Virtual-0"), screen_of(sb, "Virtual-1")
         sb.open_window("W", 0, 300, 2400, 600)
         grab = titlebar(sb, "W", dx=2150)          # 950 px right of the centre, clear of the buttons
-        band = (g1[0] + g1[2] * 0.25 + 30, 40)     # just inside B's trigger band
+        band = (band_left(g1) + 30, 40)             # just inside B's trigger band
         sb.drag([grab, (band[0], band[1] + 150), band], release=False)
         p = popup(sb)
         check(p is not None and contains(g1, p["geo"]["x"] + 5, p["geo"]["y"] + 5),
@@ -350,6 +361,33 @@ def s_peek_unchanged(sb_factory):
         sb.hover(g1[0] + g1[2] / 2, 40, ms=300)
         p = popup(sb)
         check(p["geo"]["y"] == g1[1] + TOP_GAP, "rest: popup at y=%s, expected %s" % (p["geo"]["y"], g1[1] + TOP_GAP))
+        sb.release()
+
+
+def s_band_hugs_popup(sb_factory):
+    """The trigger band reaches activationMargin (60 px) beyond the popup
+    on each side: 30 px beside the popup it peeks, 100 px beside it the popup
+    stays hidden. (Before, the band ran out to a quarter of the screen width:
+    257 px beside the popup on a 1920 px screen.)"""
+    with sb_factory(outputs=1) as sb:
+        g = screen_of(sb, "Virtual-0")
+        mid = g[0] + g[2] / 2
+        sb.open_window("W", g[0] + 300, 400, 800, 500)
+        grab = titlebar(sb, "W")
+        sb.drag([grab, (mid, 300), (mid, 120)], release=False, hold_ms=300)
+        p = popup(sb)
+        check(p is not None and p["geo"]["y"] + p["geo"]["h"] == g[1] + PEEK,
+              "setup: popup not peeking at the band's centre: %s" % (p and p["geo"]))
+        px, pw = p["geo"]["x"], p["geo"]["w"]
+        check(abs(pw - POPUP_W) <= 2, "setup: popup is %s px wide, the scenario assumes %s" % (pw, POPUP_W))
+        for label, x, reveals in (("30 px left of", px - 30, True), ("100 px left of", px - 100, False),
+                                  ("30 px right of", px + pw + 30, True), ("100 px right of", px + pw + 100, False)):
+            sb.hover(x, g[1] + 120, ms=400)
+            p = popup(sb)
+            peeking = p is not None and p["geo"]["y"] + p["geo"]["h"] > g[1]
+            shot(sb, "band-" + label.replace(" ", "-"))
+            check(peeking == reveals, "cursor %s the popup: popup %s, expected %s"
+                  % (label, "peeks" if peeking else "hidden", "peeking" if reveals else "hidden"))
         sb.release()
 
 
@@ -573,7 +611,7 @@ def s_per_output_wide_off_centre(sb_factory):
         check(sb.window("W")["desktops"] == ["Desktop 1"], "setup: W not on Desktop 1")
         sb.new_log()
         grab = titlebar(sb, "W", dx=2150)
-        band = (g1[0] + g1[2] * 0.25 + 30, 40)
+        band = (band_left(g1) + 30, 40)
         sb.drag([grab, (band[0], band[1] + 150), band], release=False)
         p = popup(sb)
         check(p is not None, "popup not shown")
@@ -657,6 +695,7 @@ SCENARIOS = [
     s_top_panel,
     s_retracted_never_visible,
     s_peek_unchanged,
+    s_band_hugs_popup,
     s_no_shadow_line,
     s_first_drag_no_flash,
     s_escape_never_snaps,

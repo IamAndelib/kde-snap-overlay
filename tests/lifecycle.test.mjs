@@ -38,7 +38,7 @@ const fns = extract(qml)
 // `readonly property` declarations (continuation lines included), in an
 // order that satisfies their dependencies.
 const SETTINGS = ['cardW', 'cardH', 'gap', 'pad', 'popupH', 'activationDistance', 'topGap', 'showDistance',
-    'edgeGapRatio', 'highlightDelay', 'overlayFadeIn', 'highlightOpacity', 'peekHeight', 'shadowClearance']
+    'activationMargin', 'highlightDelay', 'overlayFadeIn', 'highlightOpacity', 'peekHeight', 'shadowClearance']
 function extractSettings(src) {
     const found = {}
     const lines = src.split('\n')
@@ -126,16 +126,16 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
         var debugLog = true;
         var screenArea = { x: 0, y: 0, width: 1920, height: 1080 };
         var screenGeometry = { x: 0, y: 0, width: 1920, height: 1080 }, otherScreens = [], placeInstantly = false;
-        // edgeGap is a binding on screenArea in main.qml.
-        Object.defineProperty(globalThis, 'edgeGap', { configurable: true,
-            get: function () { return screenArea.width * edgeGapRatio } });
+        // The popup dialog's own width: 0 until libplasma first maps it.
+        var width = 0;
         var dragging = false, fullZone = false, retracted = true, visible = false;
         var highlightedZone = "", overlayZone = "", dwellCandidate = "", pendingZone = "", pendingWindow = null;
         var pendingScreen = null;
         var dropHandled = false, dragStartPos = { x: 0, y: 0 }, dragWindow = null, dragScreen = null, quickTiles = null;
         var hSplit = 0.5, vSplit = 0.5;
         var pollTimer = timers.poll, commitTimer = timers.commit, dwellTimer = timers.dwell, hideTimer = timers.hide;
-        var zoneSelector = { width: 3 * cardW + 2 * gap + 2 * pad, height: popupH, mapToGlobal: function () {
+        var zoneSelector = { width: 3 * cardW + 2 * gap + 2 * pad, implicitWidth: 3 * cardW + 2 * gap + 2 * pad,
+            height: popupH, mapToGlobal: function () {
             return { x: screenArea.x + Math.floor((screenArea.width - this.width) / 2), y: screenArea.y + topGap } } };
         ${Object.values(fns).join('\n')}
         return { get: function (k) { return eval(k) }, startup: startup, onTick: onTick, onCommit: onCommit,
@@ -385,6 +385,40 @@ test('watchdog: a drag whose finish never arrives is ended without snapping', ()
     assert.deepEqual(env.calls, [])
 })
 
+// Cursor at (x, y) on a running drag: does the popup come out (peek or
+// full)? y = 100 is inside activationDistance but beyond showDistance.
+function revealsAt(env, x, y = 100) {
+    env.Workspace.cursorPos = { x, y }
+    env.rt.onTick()
+    return !env.rt.get('retracted')
+}
+function startDrag(env, w) {
+    w.move = true
+    w.interactiveMoveResizeStarted.emit()
+}
+
+test('trigger band hugs the popup: 50 px beside it reveals, 100 px beside it does not', () => {
+    const env = setup()
+    startDrag(env, addWindow(env))
+    // Unmapped in the harness, so the band is measured from the card row:
+    // 438 px centred on 1920, i.e. 741 to 1179, plus the 60 px margin.
+    const half = env.rt.get('zoneSelector').implicitWidth / 2
+    const [left, right] = [960 - half, 960 + half]
+    assert.equal(revealsAt(env, left - 50), true, '50 px left of the popup')
+    assert.equal(revealsAt(env, left - 100), false, '100 px left of the popup')
+    assert.equal(revealsAt(env, right + 50), true, '50 px right of the popup')
+    assert.equal(revealsAt(env, right + 100), false, '100 px right of the popup')
+    assert.equal(revealsAt(env, 960), true, 'over the popup')
+})
+
+test('trigger band on another screen is measured from that screen\'s popup', () => {
+    const env = setup({ screens: twoScreens() })
+    startDrag(env, addWindow(env))
+    const left = 1920 + 960 - env.rt.get('zoneSelector').implicitWidth / 2
+    assert.equal(revealsAt(env, left - 50), true, '50 px left of B\'s popup')
+    assert.equal(revealsAt(env, left - 100), false, '100 px left of B\'s popup')
+})
+
 test('multi-monitor: crossing to another screen retargets it; popup + snap work there', () => {
     const B = mkOutput('B', 1920, 0, 2560, 1440)
     const env = setup({ screens: [mkOutput('A', 0, 0, 1920, 1080), B] })
@@ -509,18 +543,20 @@ test('startup: a throwing window does not stop the others or windowAdded', () =>
 
 test('config: defaults, fallback for non-numbers, clamping to each range', () => {
     const d = runtime().rt
-    for (const [k, v] of Object.entries({ activationDistance: 150, topGap: 25, showDistance: 75, edgeGapRatio: 0.25,
+    for (const [k, v] of Object.entries({ activationDistance: 150, topGap: 25, showDistance: 75, activationMargin: 60,
         highlightDelay: 150, overlayFadeIn: 200, highlightOpacity: 0.5, peekHeight: 15 })) {
         assert.equal(d.get(k), v, k)
     }
-    const bad = runtime({ config: { activationDistance: 'abc', edgeGapRatio: 'x', topGap: NaN, peekHeight: '' } }).rt
+    const bad = runtime({ config: { activationDistance: 'abc', activationMargin: 'x', topGap: NaN, peekHeight: '' } }).rt
     assert.equal(bad.get('activationDistance'), 150)
-    assert.equal(bad.get('edgeGapRatio'), 0.25)
+    assert.equal(bad.get('activationMargin'), 60)
     assert.equal(bad.get('topGap'), 25)
     assert.equal(bad.get('peekHeight'), 10, "'' is the number 0, clamped up")
     const hi = runtime({ config: { activationDistance: 999, showDistance: 5, topGap: 30, highlightOpacity: 500,
-        peekHeight: 999, highlightDelay: -5 } }).rt
+        peekHeight: 999, highlightDelay: -5, activationMargin: 9999 } }).rt
     assert.equal(hi.get('activationDistance'), 400)
+    assert.equal(hi.get('activationMargin'), 500)
+    assert.equal(runtime({ config: { activationMargin: -5 } }).rt.get('activationMargin'), 0)
     assert.equal(hi.get('showDistance'), 40, 'at least topGap + 10')
     assert.equal(hi.get('highlightOpacity'), 1)
     assert.equal(hi.get('peekHeight'), 78, 'popup height (98) - 20')

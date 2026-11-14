@@ -151,6 +151,22 @@ function hitTestZones(posX, posY, popupX, popupY, cardW, cardH, gap, pad, hs, vs
     return "";
 }
 
+// How far the trigger band reaches sideways on a screen whose area starts
+// at areaX and is areaWidth wide: the popup's width plus `margin` on each
+// side, centred like the popup, and never beyond the area. Measured from
+// the popup rather than as a share of the screen, so the band hugs the
+// popup on any screen width, always contains it (its outer cards can never
+// fall outside the band), and drags toward the top corners, where KWin
+// quarter-tiles, leave it alone.
+function bandSpan(areaX, areaWidth, popupWidth, margin) {
+    var centre = areaX + areaWidth / 2;
+    var half = popupWidth / 2 + margin;
+    return {
+        left: Math.max(areaX, centre - half),
+        right: Math.min(areaX + areaWidth, centre + half)
+    };
+}
+
 // Where the popup sits outside its resting position, for a popup of size
 // popupW x popupH at x = popupX on the screen with full output geometry
 // `screen` (`others`: the other outputs' geometries). The reveal slides the
