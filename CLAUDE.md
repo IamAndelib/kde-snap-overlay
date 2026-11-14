@@ -2,7 +2,7 @@
 
 A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts" popup when a window is dragged to the top edge. Dropping on a zone applies **KWin's native quick tiling**. Author: IamAndelib. Licence: GPL-3.0-or-later (some components derive from KZones; see `NOTICE`).
 
-**Status:** v1.8.0 is the current release (v1.7.1 before it; older releases and tags were deleted on purpose, abandoned branches live on as `archive/*` tags). `main` is the release branch. Work after a release goes under `## [Unreleased]` in `CHANGELOG.md`.
+**Status:** v1.9.0 is the current release (v1.8.0 before it; older releases and tags were deleted on purpose, abandoned branches live on as `archive/*` tags). `main` is the release branch. Work after a release goes under `## [Unreleased]` in `CHANGELOG.md`.
 
 ## Read first
 
@@ -14,7 +14,7 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 ## Working rules
 
 - Be meticulous and precise. **Never break working behaviour.** When a fix changes observable behaviour, ask first.
-- Verify KWin behaviour in KWin's source (`https://raw.githubusercontent.com/KDE/kwin/<branch>/src/...`, e.g. `Plasma/6.7`, the version the user runs) rather than guessing; record new facts in `docs/kwin-notes.md`.
+- Verify KWin behaviour in KWin's source (`https://raw.githubusercontent.com/KDE/kwin/<branch>/src/...`, e.g. `Plasma/6.8`, the version the user runs) rather than guessing; record new facts in `docs/kwin-notes.md`.
 - Plan non-trivial work first; ask before anything outward or irreversible (pushing, merging, releases, deleting releases/tags/branches, force-pushes). KDE Store uploads are the user's.
 - Every behaviour fix gets a test that fails on the broken variant (mutation check). Multi-monitor and reveal changes also get a `tests/kwin` scenario.
 - Keep docs in step with the code: test counts and commands in `CONTRIBUTING.md`, the contract in `docs/architecture.md`, user-visible changes in `CHANGELOG.md` and the README.
@@ -22,8 +22,8 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 
 ## This machine: develop in the container, test on the host
 
-The user keeps the host untouched. **All development commands run inside the distrobox `dev`** (Fedora 44 toolbox, set up by `dev/setup-container.sh`; it shares `$HOME`, so the repo has the same path inside). From a host shell:
-`distrobox enter dev -- bash -c 'cd ~/Development/kde-snap-overlay && <command>'`.
+The user keeps the host untouched. **All development commands run inside the distrobox `dev`** (Fedora 45 toolbox with KWin 6.8, set up by `dev/setup-container.sh`; it shares `$HOME`, so the repo has the same path inside). From a host shell:
+`distrobox enter dev -- bash -c 'cd ~/Projects/kde-snap-overlay && <command>'`.
 
 - Never install packages or tools on the host; add them to `dev/setup-container.sh` and run it in the container.
 - The only host-side step is a preview for the user: `dev/preview.sh` (tests in the container, then installs `<version>-preview.<commit>`); `--status`, `--restore`. The user must **log out and back in** afterwards.
@@ -34,4 +34,5 @@ The user keeps the host untouched. **All development commands run inside the dis
 - Up to 1.7.0: the KZones-style popup, native dialog panel, FancyZones overlay model.
 - 1.7.1: cleanup, licence corrected to GPL-3.0-or-later, exact KWin tile geometry (the `parentTile`/`childTiles` bug), Escape and Meta+drag fixes, hardening, release automation. The old v2.x line was abandoned and removed.
 - 1.8.0: multi-monitor done right and drag fixes, all found with the new `tests/kwin` bed (wrong-monitor snap for wide windows, stacked monitors, per-output desktops, top panel, shadow line, first-drag flash, Escape after a held press, fixed-size windows, `topGap` maximum); contributor docs, a reproducible dev container and CI linting.
+- 1.9.0: the trigger band hugs the popup (`activationMargin`, 60 px beside it, replacing `edgeGapRatio`); `main.js` type-checked with TypeScript over JSDoc (no build step); a whole-codebase QA pass (packaging, release guard, test-bed preconditions); tested on Plasma 6.8. Considered and rejected: a frosted (blurred) zone overlay and user-selectable/custom layouts (keep the script simple).
 - A sibling project, `window-geometry-restore`, lives in its own repo and is out of scope here.

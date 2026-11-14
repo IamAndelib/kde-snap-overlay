@@ -1,7 +1,7 @@
 name: Test
 
 # Unit tests and linters on every PR and on pushes to main. The real-KWin
-# multi-monitor suite (tests/kwin) needs KWin 6.7 and runs locally; see
+# multi-monitor suite (tests/kwin) needs KWin 6.7 or later and runs locally; see
 # CONTRIBUTING.md.
 on:
   push:
@@ -23,6 +23,11 @@ jobs:
 
       - name: Run tests
         run: node --test tests/*.test.mjs
+
+      - name: Type-check main.js
+        run: |
+          npm install --global --no-fund --no-audit --loglevel=error typescript@6.0.3
+          node tests/typecheck.mjs
 
       - name: Check shell scripts
         run: |

@@ -20,15 +20,15 @@ All native behaviors are left intact:
 
 ## Requirements
 
-- Plasma / KWin 6 (tested on 6.7) — Plasma 5 is not supported
+- Plasma / KWin 6 (tested on 6.8) — Plasma 5 is not supported
 - Wayland session (X11 is untested and edge behavior differs)
-- `kpackagetool6`, `kwriteconfig6` and `qdbus6`
+- `kpackagetool6`, `kwriteconfig6` and `qdbus6` (named `qdbus-qt6` on Fedora and its derivatives: use that in the commands below)
 
 ## Install
 
 ### Option A: from the `.kwinscript` file
 
-Grab `kde-snap-overlay-1.8.0.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)); see the [changelog](CHANGELOG.md) for what's new:
+Grab `kde-snap-overlay-1.9.0.kwinscript` from the repo root or the releases page (also published on the [KDE Store](https://store.kde.org)); see the [changelog](CHANGELOG.md) for what's new:
 
 1. Open **System Settings → Window Management → KWin Scripts**.
 2. Press **Install from File…** and select the `.kwinscript` file.
@@ -51,7 +51,7 @@ git clone https://github.com/IamAndelib/kde-snap-overlay.git
 cd kde-snap-overlay
 
 # install the package (use --upgrade instead of --install to update an existing install)
-kpackagetool6 --type KWin/Script --install kde-snap-overlay-1.8.0.kwinscript
+kpackagetool6 --type KWin/Script --install kde-snap-overlay-1.9.0.kwinscript
 
 # enable it
 kwriteconfig6 --file kwinrc --group Plugins --key kde-snap-overlayEnabled true
@@ -72,7 +72,7 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 | `topGap`             | 25      | 0–(activationDistance−84−frame) | Resting offset between the top edge and the popup panel. The maximum keeps the whole card row inside the trigger band: 84 px of cards and padding plus the theme's dialog frame (4 px with Breeze, so 62 by default) |
 | `showDistance`       | 75      | topGap+10–activationDistance−10 | Cursor distance from the top edge below which the popup fully drops (beyond it, only the peek sliver shows). Default matches KZones' trigger distance |
 | `peekHeight`         | 15      | 10–78 | Height of the popup sliver that peeks over the top edge while peeking |
-| `edgeGapRatio`       | 0.25    | 0–0.5 | Fraction of the screen width ignored on each side of the trigger band (keeps the popup from opening over the corners) |
+| `activationMargin`   | 60      | 0–500 | How far (px) the trigger band reaches beyond the popup on each side, so the popup only wakes near itself and drags toward the top corners are left to KWin's corner tiling (a margin large enough to reach the screen edges gives that up). `0` limits the band to the popup itself |
 | `highlightDelay`     | 150     | 0–500 | Rest (ms) the cursor must hold on one layout before the fullscreen zone overlay engages. The popup cards highlight instantly either way; `0` engages the overlay instantly (FancyZones' own behavior) |
 | `overlayFadeIn`      | 200     | 0–1000 | Fade-in duration (ms) of the zone overlay — FancyZones' 200ms linear alpha ramp, the overlay's only animation |
 | `highlightOpacity`   | 50      | 5–100 | Opacity (%) of the overlay's accent fill (FancyZones' highlightOpacity); the border stays near-opaque |
@@ -81,13 +81,11 @@ You can also install it from the **KDE Store** via **System Settings → Window 
 ```sh
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationDistance 150
 kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key topGap 25
-kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key edgeGapRatio 0.25
+kwriteconfig6 --file kwinrc --group Script-kde-snap-overlay --key activationMargin 60
 qdbus6 org.kde.KWin /KWin reconfigure
 ```
 
-If `topGap` is raised too high it is clamped so the popup's card row always lands inside the trigger band.
-
-Setting `edgeGapRatio` to `0.5` collapses the trigger zone to a single point in the center of the top edge, so the popup effectively stops opening — keep it well below `0.5`.
+If `topGap` is raised too high it is clamped so the popup's card row always lands inside the trigger band. Sideways, the band always contains the whole popup, whatever `activationMargin` is.
 
 ## Uninstall
 

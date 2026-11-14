@@ -1,6 +1,6 @@
 # KWin behaviour this script depends on
 
-Verified against KWin's source, branches `Plasma/6.4`, `Plasma/6.5`, `Plasma/6.6` and `master` (September 2026). Read files via the GitHub mirror: `https://raw.githubusercontent.com/KDE/kwin/<branch>/<path>`. References use function names, not line numbers, because lines drift. Re-check this page when the user moves to a new Plasma version.
+Verified against KWin's source, branches `Plasma/6.4`, `Plasma/6.5`, `Plasma/6.6` and `master` (September 2026); every fact the script relies on was re-checked in `Plasma/6.8` (November 2026), where the `tests/kwin` suite also passes (KWin 6.8.2). Read files via the GitHub mirror: `https://raw.githubusercontent.com/KDE/kwin/<branch>/<path>`. References use function names, not line numbers, because lines drift. Re-check this page when the user moves to a new Plasma version.
 
 ## Tiles
 
@@ -64,7 +64,7 @@ X11 moves are synchronous too.
 
 ## Multiple outputs
 
-Verified in `Plasma/6.7` and in the real-KWin test bed (`tests/kwin`).
+Verified in `Plasma/6.7` and `Plasma/6.8` and in the real-KWin test bed (`tests/kwin`).
 
 **Which output a snap lands on:** `Window::handleQuickTileShortcut` tiles at `moveResizeGeometry().center()`, and `Window::setMoveResizeGeometry` sets the move output to `outputAt(geometry centre)`. So a quick-tile slot tiles on the output under the **window's centre**, not the cursor's. A wide window grabbed far off-centre can have its centre on another monitor than the cursor (and our popup). `onCommit` therefore calls `Workspace.sendClientToScreen` first (`Window::sendToOutput`: `moveToArea` keeps the relative position, so the centre lands on the new output, and `moveResizeGeometry` updates synchronously).
 

@@ -1,8 +1,10 @@
-// Popup reveal positions: Logic.revealPositions decides where the popup can
-// hide above its screen (retracted) and peek from. KWin paints a window on
-// every output it overlaps, so the space above a screen's top edge only
-// hides the popup when no other output is there. Real-KWin counterparts:
-// tests/kwin/scenarios.py (s_stacked_*, s_top_panel, s_peek_unchanged).
+// Popup reveal: Logic.revealPositions decides where the popup can hide
+// above its screen (retracted) and peek from. KWin paints a window on every
+// output it overlaps, so the space above a screen's top edge only hides the
+// popup when no other output is there. Logic.bandSpan is how far the
+// trigger band reaches sideways: the popup plus a margin, not a share of
+// the screen. Real-KWin counterparts: tests/kwin/scenarios.py (s_stacked_*,
+// s_top_panel, s_peek_unchanged, s_band_hugs_popup).
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
@@ -11,7 +13,7 @@ import assert from 'node:assert/strict'
 // KSO_ROOT=/path/to/copy: test another checkout (mutation checks).
 const ROOT = process.env.KSO_ROOT || fileURLToPath(new URL('..', import.meta.url))
 const Logic = new Function(readFileSync(ROOT + '/contents/code/main.js', 'utf8')
-    .replace(/^\s*\.pragma library.*$/m, '') + '\nreturn { revealPositions }')()
+    .replace(/^\s*\.pragma library.*$/m, '') + '\nreturn { revealPositions, bandSpan }')()
 
 const R = (x, y, width, height) => ({ x, y, width, height })
 const W = 446, H = 106, PEEK = 15, C = 40
@@ -53,4 +55,19 @@ test('an upper monitor ending above the hidden spot leaves the edge free', () =>
 test('parks above the topmost output, whichever is first', () => {
     const r = at(R(0, 1080, 1920, 1080), [R(1920, -500, 1920, 1080), R(0, 0, 1920, 1080)])
     assert.deepEqual(r, { shared: true, retracted: -500 - H - C, peek: -500 - H - C })
+})
+
+test('trigger band: the popup plus the margin on each side, centred like the popup', () => {
+    assert.deepEqual(Logic.bandSpan(0, 1920, W, 60), { left: 960 - W / 2 - 60, right: 960 + W / 2 + 60 })
+    // Not a share of the screen: the same reach beside the popup on any width.
+    assert.deepEqual(Logic.bandSpan(0, 3440, W, 60), { left: 1720 - W / 2 - 60, right: 1720 + W / 2 + 60 })
+})
+
+test('trigger band follows the screen it is on (offset outputs)', () => {
+    assert.deepEqual(Logic.bandSpan(1920, 1920, W, 60), { left: 1920 + 960 - W / 2 - 60, right: 1920 + 960 + W / 2 + 60 })
+})
+
+test('trigger band: margin 0 is exactly the popup; never wider than the screen', () => {
+    assert.deepEqual(Logic.bandSpan(0, 1920, W, 0), { left: 960 - W / 2, right: 960 + W / 2 })
+    assert.deepEqual(Logic.bandSpan(100, 500, W, 60), { left: 100, right: 600 })
 })

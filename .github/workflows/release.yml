@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   release:
+    # A manual run from another branch must never publish that branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +47,12 @@ jobs:
       - name: Run tests
         if: steps.existing.outputs.exists == 'false'
         run: node --test tests/*.test.mjs
+
+      - name: Type-check main.js
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          npm install --global --no-fund --no-audit --loglevel=error typescript@6.0.3
+          node tests/typecheck.mjs
 
       # The committed .kwinscript is what README installs and
       # dev/preview.sh --restore use; it must match the source being released.
