@@ -3,13 +3,13 @@
 # KDE Snap Overlay - development container setup
 #
 # Installs everything development needs into a Fedora distrobox/toolbox
-# (Fedora 44, whose KWin matches Plasma 6.7), so the host gets nothing:
+# (Fedora 45, whose KWin matches Plasma 6.8), so the host gets nothing:
 #
-#   distrobox create --name dev --image registry.fedoraproject.org/fedora-toolbox:44
+#   distrobox create --name dev --image registry.fedoraproject.org/fedora-toolbox:45
 #   distrobox enter dev -- ./dev/setup-container.sh
 #
-# Safe to re-run. Lint tools go into a venv in the container's own
-# filesystem (/opt/kso-tools), not into $HOME, which distrobox shares.
+# Safe to re-run. Lint and type-check tools go into /opt/kso-tools in the
+# container's own filesystem, not into $HOME, which distrobox shares.
 #
 set -euo pipefail
 
@@ -26,6 +26,8 @@ PACKAGES=(
     # tests/kwin: a headless KWin with real decorations, test windows and a
     # layer-shell panel
     kwin plasma-breeze layer-shell-qt qt6-qtdeclarative qt6-qtwayland dbus-daemon
+    # the qml runner for test windows (in -devel since Fedora 45)
+    qt6-qtdeclarative-devel
     # tests/kwin: the driver (fake input, D-Bus, outputctl.c)
     python3-pywayland python3-dbus gcc wayland-devel plasma-wayland-protocols-devel
 )
@@ -40,6 +42,9 @@ if [ ! -x "$VENV/bin/pip" ]; then
 fi
 "$VENV/bin/pip" install --quiet PySide6-Essentials==6.12.0 actionlint-py==1.7.12.25 pyflakes==4.1.0
 
+echo ">>> Installing TypeScript (type checks) into $VENV..."
+npm install --global --prefix "$VENV" --no-fund --no-audit --loglevel=error typescript@6.0.3
+
 echo
 echo "Done. Tools: node $(node --version), kwin $(rpm -q --qf '%{VERSION}' kwin),"
-echo "$VENV/bin/pyside6-qmllint, $VENV/bin/actionlint, $VENV/bin/pyflakes."
+echo "$VENV/bin/pyside6-qmllint, $VENV/bin/actionlint, $VENV/bin/pyflakes, $VENV/bin/tsc."
