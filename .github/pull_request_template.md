@@ -2,6 +2,7 @@
 
 ## Testing
 - [ ] `node --test tests/*.test.mjs`
+- [ ] `node tests/typecheck.mjs` (`main.js` changes)
 - [ ] `python3 -I tests/kwin/scenarios.py` (screens, reveal, drop or tile changes)
 - [ ] A behaviour fix comes with a test that fails without it (mutation check)
 - [ ] Tried in a real Plasma session (version: )

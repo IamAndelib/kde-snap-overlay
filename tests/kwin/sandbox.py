@@ -63,11 +63,23 @@ class SandboxError(RuntimeError):
     pass
 
 
-def _write_png(path, raw, width, height, stride):
-    """Write KWin's ARGB32 (little-endian BGRA) screenshot buffer as a PNG."""
+# QImage::Format values whose bytes are already R, G, B, A in memory
+# (Format_RGBX8888, Format_RGBA8888, Format_RGBA8888_Premultiplied). The
+# 32-bit (A)RGB formats are B, G, R, A on little-endian. KWin 6.8 labels its
+# captures Format_RGBX8888 (16) but the 4th byte holds the compositor's alpha
+# (an empty desktop reads 0), which max_alpha relies on; were it padding
+# (always 255), the alpha scenarios would fail, not pass.
+RGBA_BYTE_ORDER = (16, 17, 18)
+
+
+def _write_png(path, raw, width, height, stride, fmt):
+    """Write a KWin screenshot buffer (QImage format `fmt`) as a PNG."""
     rows = []
     for y in range(height):
         line = raw[y * stride:y * stride + width * 4]
+        if fmt in RGBA_BYTE_ORDER:
+            rows.append(b"\x00" + bytes(line))
+            continue
         rgba = bytearray(len(line))
         rgba[0::4] = line[2::4]
         rgba[1::4] = line[1::4]
@@ -496,8 +508,9 @@ class Sandbox:
     # ---- screenshots -------------------------------------------------------------
 
     def capture(self):
-        """The whole workspace as (raw ARGB32 bytes, width, height, stride),
-        logical pixels, origin at the workspace's top-left."""
+        """The whole workspace as (raw 32-bit pixels, width, height, stride,
+        QImage format), logical pixels, origin at the workspace's top-left.
+        The 4th byte of each pixel is alpha (see RGBA_BYTE_ORDER)."""
         import dbus
         bus = dbus.bus.BusConnection(self._env()["DBUS_SESSION_BUS_ADDRESS"])
         obj = bus.get_object("org.kde.KWin", "/org/kde/KWin/ScreenShot2")
@@ -512,17 +525,18 @@ class Sandbox:
                 break
             chunks.append(b)
         os.close(r)
-        return b"".join(chunks), int(meta["width"]), int(meta["height"]), int(meta["stride"])
+        return (b"".join(chunks), int(meta["width"]), int(meta["height"]), int(meta["stride"]),
+                int(meta.get("format", 5)))
 
     def screenshot(self, path):
-        raw, width, height, stride = self.capture()
-        _write_png(path, raw, width, height, stride)
+        raw, width, height, stride, fmt = self.capture()
+        _write_png(path, raw, width, height, stride, fmt)
         return path
 
     def max_alpha(self, x0, y0, x1, y1):
         """Highest alpha drawn in [x0, x1) x [y0, y1); the empty desktop is
         fully transparent, so anything > 0 is something KWin painted."""
-        raw, width, height, stride = self.capture()
+        raw, width, height, stride, _ = self.capture()
         m = 0
         for y in range(max(0, y0), min(height, y1)):
             row = raw[y * stride:(y + 1) * stride]

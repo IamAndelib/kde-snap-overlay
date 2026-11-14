@@ -53,7 +53,8 @@ PlasmaCore.Dialog {
         topGap + 10, Math.max(activationDistance - 10, topGap + 10))
     // How far (px) the trigger band reaches beyond the popup on each side
     // (Logic.bandSpan), so the popup only wakes near itself and drags toward
-    // the top corners (KWin's quarter-tiling) never open it.
+    // the top corners (KWin's quarter-tiling) leave it alone, unless the
+    // margin is so large that the band spans the screen.
     readonly property int activationMargin: Logic.clampNumber(KWin.readConfig("activationMargin", 60), 60, 0, 500)
 
     // ---- Overlay behavior (FancyZones' animation model) ----
@@ -133,6 +134,15 @@ PlasmaCore.Dialog {
     readonly property real compensateLeft: {
         try {
             return Math.max(0, (popup.margins.right - popup.margins.left) / 2)
+        } catch (e) {
+            return 0
+        }
+    }
+    // The theme frame's left and right margins together: the dialog is the
+    // Selector plus these. Guarded like the compensations above.
+    readonly property real frameWidth: {
+        try {
+            return popup.margins.left + popup.margins.right
         } catch (e) {
             return 0
         }
@@ -505,17 +515,20 @@ PlasmaCore.Dialog {
             retarget()
         }
         // The band reaches activationMargin beyond the popup on each side.
-        // The dialog's width is 0 until libplasma first maps it, so the card
-        // row's own width stands in until then.
+        // The dialog's width is 0 until libplasma first maps it; until then
+        // the Selector plus the theme frame (what the dialog will be) stands
+        // in.
         var band = Logic.bandSpan(screenArea.x, screenArea.width,
-            Math.max(width, zoneSelector.implicitWidth), activationMargin)
+            Math.max(width, zoneSelector.implicitWidth + frameWidth), activationMargin)
         var inBand =
             pos.y >= screenArea.y && pos.y <= screenArea.y + activationDistance &&
             pos.x >= band.left && pos.x <= band.right
         if (inBand) {
             // Back inside the band: reveal the selector again. The dialog
-            // may have been hidden by the fly-out — remapping is safe, the
-            // window is sized from the mainItem's implicit size.
+            // stays mapped for the whole drag (mapped at the grab, hidden
+            // only once the drag ends), so this remap is only a safeguard;
+            // it is safe, the window is sized from the mainItem's implicit
+            // size.
             retracted = false
             if (!visible) {
                 visible = true
@@ -574,19 +587,19 @@ PlasmaCore.Dialog {
                 }
             }
         } else {
-            // Outside the band: fly the panel up off the top edge, then hide
-            // the dialog once the animation has finished.
+            // Outside the band: fly the panel up off the top edge. The dialog
+            // stays mapped, retracted, until the drag ends (resetDrag), so
+            // the next reveal is only an animation (KZones' activation).
             clearZoneState()
             retracted = true
-            // start() keeps a running fly-out timer going.
-            hideTimer.start()
         }
     }
 
-    // End the drag. flyOut=true: nothing was dropped on a layout, so the
-    // panel flies away the same way it dropped in, and the dialog hides once
-    // the animation finishes. flyOut=false: hide instantly (successful snap,
-    // or stuck-drag cleanup).
+    // End the drag. flyOut=true: nothing was dropped on a layout (or the
+    // watchdog ended a drag whose finish never came), so the panel flies away
+    // the same way it dropped in, and the dialog hides once the animation
+    // finishes. flyOut=false: hide instantly (a successful snap, or the
+    // dragged window closed mid-drag).
     function resetDrag(flyOut) {
         dragging = false
         pollTimer.stop()

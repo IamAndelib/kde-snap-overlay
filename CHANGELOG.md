@@ -7,8 +7,15 @@ Notable changes to KDE Snap Overlay. Each release's GitHub notes are published f
 **Changes**
 - **The popup only wakes near itself.** Sideways, the trigger band now reaches 60 px beyond the popup on each side, instead of out to a quarter of the screen width (on a 1920 px screen that was 257 px beside the popup). The new `activationMargin` setting (px, 0–500) replaces `edgeGapRatio`, which is no longer read: if you had set it, set `activationMargin` instead. The band is measured from the popup, so it behaves the same on any screen width and always contains the whole popup (a large `edgeGapRatio` could leave the outer cards outside it).
 
+**Hardening**
+- The release workflow only ever publishes from `main`, and type-checks before it does.
+- `package.sh --force` rebuilds the package from scratch; it used to keep files that had been deleted from `contents/`.
+
 **Under the hood**
-- `tests/kwin`: a scenario for the band's reach beside the popup (24 scenarios); the unit suites check the band on one and two screens (39 tests).
+- `contents/code/main.js` is type-checked: JSDoc types, checked by TypeScript 6.0.3 in strict mode (`node tests/typecheck.mjs`, also in CI). KWin still runs the same plain JavaScript.
+- Plasma 6.8: every KWin fact the script relies on was re-checked in KWin's 6.8 source, and the real-KWin suite passes on KWin 6.8.2. The development container moves to Fedora 45.
+- `tests/kwin`: a scenario for the band's reach beside the popup (24 scenarios); three scenarios now check their own setup, so they can no longer pass without testing anything; screenshots have the right colours on KWin 6.8.
+- Unit suites: 40 tests, checking the band on one and two screens, before and after the popup's first map; the quick-tile suite now honours `KSO_ROOT` for mutation checks.
 
 ## [1.8.0] - 2026-10-30
 

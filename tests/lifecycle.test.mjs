@@ -121,7 +121,7 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
     const env = new Function('Workspace', 'KWin', 'Qt', 'console', 'timers', 'readConfig', `
         ${logicSrc}
         var Logic = { ${logicNames.map((n) => `${n}: ${n}`).join(', ')} };
-        var compensateLeft = 0, compensateTop = 0, cardInsetTop = 0;  // no dialog frame here
+        var compensateLeft = 0, compensateTop = 0, cardInsetTop = 0, frameWidth = 0;  // no dialog frame here
         ${settingsSrc}
         var debugLog = true;
         var screenArea = { x: 0, y: 0, width: 1920, height: 1080 };
@@ -134,11 +134,14 @@ function runtime({ screens = [mkOutput('A', 0, 0, 1920, 1080)], config = {}, per
         var dropHandled = false, dragStartPos = { x: 0, y: 0 }, dragWindow = null, dragScreen = null, quickTiles = null;
         var hSplit = 0.5, vSplit = 0.5;
         var pollTimer = timers.poll, commitTimer = timers.commit, dwellTimer = timers.dwell, hideTimer = timers.hide;
-        var zoneSelector = { width: 3 * cardW + 2 * gap + 2 * pad, implicitWidth: 3 * cardW + 2 * gap + 2 * pad,
+        // Selector.qml's implicitWidth: the card row, its padding and extraLeft.
+        var zoneSelector = { width: 3 * cardW + 2 * gap + 2 * pad,
+            implicitWidth: 3 * cardW + 2 * gap + 2 * pad + compensateLeft,
             height: popupH, mapToGlobal: function () {
             return { x: screenArea.x + Math.floor((screenArea.width - this.width) / 2), y: screenArea.y + topGap } } };
         ${Object.values(fns).join('\n')}
-        return { get: function (k) { return eval(k) }, startup: startup, onTick: onTick, onCommit: onCommit,
+        return { get: function (k) { return eval(k) }, set: function (k, v) { eval(k + ' = v') },
+                 startup: startup, onTick: onTick, onCommit: onCommit,
                  desktopFor: desktopFor };
     `)
     const timers = { poll: timer(), commit: timer(), dwell: timer(), hide: timer() }
@@ -409,6 +412,22 @@ test('trigger band hugs the popup: 50 px beside it reveals, 100 px beside it doe
     assert.equal(revealsAt(env, right + 50), true, '50 px right of the popup')
     assert.equal(revealsAt(env, right + 100), false, '100 px right of the popup')
     assert.equal(revealsAt(env, 960), true, 'over the popup')
+})
+
+test('trigger band: from the dialog once it is mapped, from the cards plus the frame before', () => {
+    const env = setup()
+    startDrag(env, addWindow(env))
+    const dialog = env.rt.get('zoneSelector').implicitWidth + 8   // Breeze: a 4 px frame each side
+    const edge = 960 - dialog / 2 - env.rt.get('activationMargin')
+    // Mapped: libplasma has sized the dialog.
+    env.rt.set('width', dialog)
+    assert.equal(revealsAt(env, edge + 1), true, 'just inside the band of the mapped dialog')
+    assert.equal(revealsAt(env, edge - 1), false, 'just outside it')
+    // Not mapped yet (width 0): the cards plus the theme frame stand in.
+    env.rt.set('width', 0)
+    env.rt.set('frameWidth', 8)
+    assert.equal(revealsAt(env, edge + 1), true, 'before the first map, the frame counts too')
+    assert.equal(revealsAt(env, edge - 1), false, 'and the band ends at the same place')
 })
 
 test('trigger band on another screen is measured from that screen\'s popup', () => {

@@ -3,10 +3,13 @@
 // src/tiles/tile.cpp). Scripts only see the Tile Q_PROPERTYs used here:
 // parent, tiles, relativeGeometry, absoluteGeometry. See docs/kwin-notes.md.
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-const Logic = new Function(readFileSync(new URL('../contents/code/main.js', import.meta.url), 'utf8')
+// KSO_ROOT=/path/to/copy: test another checkout (mutation checks).
+const ROOT = process.env.KSO_ROOT || fileURLToPath(new URL('..', import.meta.url))
+const Logic = new Function(readFileSync(ROOT + '/contents/code/main.js', 'utf8')
     .replace(/^\s*\.pragma library.*$/m, '') + '\nreturn { quickZoneFor, quickTilesOf, ZONE_IDS }')()
 
 const MIN = 0.15 // Tile::m_minimumSize default: KWin clamps splits to [0.15, 0.85]

@@ -63,7 +63,8 @@ do_preview() {
     command -v distrobox >/dev/null 2>&1 || { echo "Error: distrobox not found." >&2; exit 1; }
 
     echo ">>> Running the tests in the '$DEVBOX' container..."
-    in_devbox node --test --test-reporter=spec tests/*.test.mjs
+    # Quoted: the container resolves it in the repo, not the host in $PWD.
+    in_devbox node --test --test-reporter=spec 'tests/*.test.mjs'
 
     local sha dirty version
     sha="$(git -C "$REPO_DIR" rev-parse --short HEAD)"

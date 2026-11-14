@@ -14,7 +14,7 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 ## Working rules
 
 - Be meticulous and precise. **Never break working behaviour.** When a fix changes observable behaviour, ask first.
-- Verify KWin behaviour in KWin's source (`https://raw.githubusercontent.com/KDE/kwin/<branch>/src/...`, e.g. `Plasma/6.7`, the version the user runs) rather than guessing; record new facts in `docs/kwin-notes.md`.
+- Verify KWin behaviour in KWin's source (`https://raw.githubusercontent.com/KDE/kwin/<branch>/src/...`, e.g. `Plasma/6.8`, the version the user runs) rather than guessing; record new facts in `docs/kwin-notes.md`.
 - Plan non-trivial work first; ask before anything outward or irreversible (pushing, merging, releases, deleting releases/tags/branches, force-pushes). KDE Store uploads are the user's.
 - Every behaviour fix gets a test that fails on the broken variant (mutation check). Multi-monitor and reveal changes also get a `tests/kwin` scenario.
 - Keep docs in step with the code: test counts and commands in `CONTRIBUTING.md`, the contract in `docs/architecture.md`, user-visible changes in `CHANGELOG.md` and the README.
@@ -22,8 +22,8 @@ A KWin 6 script (KDE Plasma 6, Wayland) that shows a Windows-style "Snap Layouts
 
 ## This machine: develop in the container, test on the host
 
-The user keeps the host untouched. **All development commands run inside the distrobox `dev`** (Fedora 44 toolbox, set up by `dev/setup-container.sh`; it shares `$HOME`, so the repo has the same path inside). From a host shell:
-`distrobox enter dev -- bash -c 'cd ~/Development/kde-snap-overlay && <command>'`.
+The user keeps the host untouched. **All development commands run inside the distrobox `dev`** (Fedora 45 toolbox with KWin 6.8, set up by `dev/setup-container.sh`; it shares `$HOME`, so the repo has the same path inside). From a host shell:
+`distrobox enter dev -- bash -c 'cd ~/Projects/kde-snap-overlay && <command>'`.
 
 - Never install packages or tools on the host; add them to `dev/setup-container.sh` and run it in the container.
 - The only host-side step is a preview for the user: `dev/preview.sh` (tests in the container, then installs `<version>-preview.<commit>`); `--status`, `--restore`. The user must **log out and back in** afterwards.

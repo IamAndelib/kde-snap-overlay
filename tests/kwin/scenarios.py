@@ -9,6 +9,7 @@ Usage: see tests/kwin/README.md (python3 -I tests/kwin/scenarios.py --help).
 
 import argparse
 import json
+import re
 import sys
 import time
 import traceback
@@ -111,6 +112,12 @@ def split_tile(sb, caption, fraction_px):
     sb.settle(0.3)
 
 
+def logged_h(line):
+    """The horizontal split in a debugLog grid line ("grid h=0.650 v=..."), or None."""
+    m = re.search(r"\bh=([0-9.]+)", line)
+    return float(m.group(1)) if m else None
+
+
 def grid_logged(sb, screen):
     """The script's debugLog grid lines for `screen` since the last new_log()."""
     return [line for line in sb.new_log().splitlines() if "grid h=" in line and screen in line]
@@ -132,7 +139,8 @@ def popup_on_screen(sb):
 
 def band_left(screen_geo):
     """The trigger band's left end on a screen: MARGIN left of the popup,
-    which is centred on the screen."""
+    which is centred on the screen's MaximizeArea (the full screen while no
+    side panel narrows it, as in every scenario using this)."""
     x, _, w, _ = screen_geo
     return x + w / 2 - POPUP_W / 2 - MARGIN
 
@@ -427,7 +435,9 @@ def s_first_drag_no_flash(sb_factory):
         sb.pointer.move(grab[0] + 30, grab[1] + 30)
         seen = max(sb.max_alpha(700, 0, 1220, 70) for _ in range(4))   # ~4 x 50 ms
         shot(sb, "first-drag")
+        mapped = popup(sb) is not None
         sb.release()
+        check(mapped, "setup: the popup did not map at the grab (script not running?)")
         check(seen == 0, "first drag: popup drawn at the top of the screen (alpha %d)" % seen)
 
 
@@ -457,6 +467,7 @@ def s_escape_never_snaps(sb_factory):
         sb.pointer.button(True)
         time.sleep(1.0)                      # longer than KWin's startDragTime
         check(sb.window("W")["move"], "setup: KWin did not start the move")
+        check(overlay(sb) is not None, "setup: no zone highlighted under the held press")
         sb.pointer.key(True, KEY_ESC)
         sb.pointer.key(False, KEY_ESC)
         time.sleep(0.2)
@@ -475,6 +486,12 @@ def s_fixed_size_window(sb_factory):
         shown = popup(sb)
         sb.release()
         check(shown is None, "popup shown for a window KWin can't tile")
+        # Control: the same drag with a resizable window does get the popup.
+        sb.open_window("W", 300, 300, 800, 500)
+        sb.drag([titlebar(sb, "W"), (960, 190), (960, 40)], release=False)
+        shown = popup(sb)
+        sb.release()
+        check(shown is not None, "setup: no popup for a resizable window either (script not running?)")
 
 
 def s_top_gap_max(sb_factory):
@@ -586,7 +603,7 @@ def s_per_output_desktops(sb_factory):
         p, o, w = snap_via_popup(sb, "W", titlebar(sb, "W"), (g1[0] + g1[2] * 0.6, 40),
                                  "right", "pod-w", h=h)
         grid = grid_logged(sb, "Virtual-1")
-        check(grid and ("h=%.3f" % h)[:5] in grid[-1],
+        check(grid and abs((logged_h(grid[-1]) or 0) - h) < 0.01,
               "B's grid not used (expected h=%.2f): %s" % (h, grid))
         check(near(rect(w["geo"]), zone_rect(g1, "right", h=h), tol=3),
               "W at %s, expected %s" % (w["geo"], zone_rect(g1, "right", h=h)))
@@ -623,7 +640,7 @@ def s_per_output_wide_off_centre(sb_factory):
         time.sleep(0.3)
         grid = grid_logged(sb, "Virtual-1")
         w = sb.window("W")
-        check(grid and ("h=%.3f" % h)[:5] in grid[-1], "B's grid not used (expected h=%.2f): %s" % (h, grid))
+        check(grid and abs((logged_h(grid[-1]) or 0) - h) < 0.01, "B's grid not used (expected h=%.2f): %s" % (h, grid))
         check(near(rect(w["geo"]), zone_rect(g1, "right", h=h), tol=3),
               "W at %s on %s, expected %s on Virtual-1" % (w["geo"], w["output"], zone_rect(g1, "right", h=h)))
         check(w["desktops"] == ["Desktop 2"], "W on %s, but Virtual-1 shows Desktop 2" % w["desktops"])

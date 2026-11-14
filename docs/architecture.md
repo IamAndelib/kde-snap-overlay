@@ -12,7 +12,7 @@ KDE Snap Overlay is a declarative KWin script (`X-Plasma-API: declarativescript`
 | `contents/ui/components/` | `Selector.qml` (the card row), `Indicator.qml` (one card) and `ColorHelper.qml` (Kirigami colour tokens), forked from KZones 0.9.3 (see `NOTICE`). |
 | `install.sh`, `package.sh` | Install/upgrade/uninstall and enable; build `kde-snap-overlay-<version>.kwinscript` (a zip of `metadata.json`, `contents/`, `LICENSE`, `NOTICE`). |
 | `kde-snap-overlay-<version>.kwinscript` | The committed release package (only the current version). |
-| `tests/` | Node unit suites (`*.test.mjs`) and `tests/kwin/`, multi-monitor scenarios against a real headless KWin ([README](../tests/kwin/README.md)). |
+| `tests/` | Node unit suites (`*.test.mjs`), the type check of `main.js` (`typecheck.mjs`: TypeScript over its JSDoc types) and `tests/kwin/`, multi-monitor scenarios against a real headless KWin ([README](../tests/kwin/README.md)). |
 | `dev/` | Development tooling: `setup-container.sh` (the dev container) and `preview.sh` (install a preview build on the host). Never shipped. |
 | `docs/` | This file and the KWin notes. |
 | `assets/`, `screenshots/` | The logo and the README demo. |

@@ -58,6 +58,9 @@ cp "$METADATA" "$SCRIPT_DIR/LICENSE" "$SCRIPT_DIR/NOTICE" "$STAGE_DIR/"
 cp -r "$SCRIPT_DIR/contents" "$STAGE_DIR/"
 
 echo ">>> Building $OUTPUT ..."
+# zip updates an existing archive (it never drops entries for deleted
+# files), so --force starts from scratch.
+rm -f "$OUTPUT"
 (
     cd "$STAGE_DIR"
     zip -X -9 -r -q "$OUTPUT" metadata.json LICENSE NOTICE contents
